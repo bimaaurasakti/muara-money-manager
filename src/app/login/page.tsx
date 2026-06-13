@@ -55,6 +55,7 @@ export default function LoginPage() {
         router.push('/');
       } else {
         setError('Login gagal. Silakan coba lagi.');
+        setIsLoggingIn(false);
       }
     } catch (err: any) {
       setError(err.message || 'Terjadi kesalahan saat login.');
@@ -106,20 +107,12 @@ export default function LoginPage() {
           ) : (
             <button
               onClick={handleGoogleLogin}
-              disabled={isLoggingIn || isSyncing}
               className="w-full flex items-center justify-center gap-3 bg-white text-black font-semibold py-4 rounded-2xl hover:bg-zinc-100 transition-colors disabled:opacity-70"
             >
-              {isLoggingIn || isSyncing ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  {isSyncing ? 'Sinkronisasi data...' : 'Logging in...'}
-                </>
-              ) : (
-                <>
-                  <LogIn className="w-5 h-5" />
-                  Login dengan Google
-                </>
-              )}
+              <>
+                <LogIn className="w-5 h-5" />
+                Login dengan Google
+              </>
             </button>
           )}
 

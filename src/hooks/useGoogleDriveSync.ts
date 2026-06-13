@@ -75,7 +75,10 @@ export function useGoogleDriveSync() {
       }
       return false;
     } catch (err: any) {
-      setError(err.message || 'Gagal login ke Google');
+      const errorMessage = err.message === 'popup_closed_by_user' || err.message === 'access_denied'
+        ? 'Login dibatalkan oleh pengguna'
+        : (err.message || 'Gagal login ke Google');
+      setError(errorMessage);
       return false;
     }
   }, []);
