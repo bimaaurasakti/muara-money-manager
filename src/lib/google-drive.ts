@@ -11,11 +11,15 @@
  */
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
-const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+const SCOPES = 'https://www.googleapis.com/auth/drive.file profile email';
 
 let tokenClient: any = null;
 let accessToken: string | null = null;
 let tokenExpiry: number | null = null; // timestamp in ms
+
+// Handler untuk Promise login
+let signInResolve: ((value: string) => void) | null = null;
+let signInReject: ((reason?: any) => void) | null = null;
 
 const TOKEN_STORAGE_KEY = 'google_access_token';
 const EXPIRY_STORAGE_KEY = 'google_token_expiry';
@@ -51,14 +55,27 @@ export function initializeGoogleDrive(): Promise<void> {
           client_id: CLIENT_ID,
           scope: SCOPES,
           callback: (response: any) => {
-            console.log('masuk')
             console.log(response)
             if (response.error) {
+              if (signInReject) {
+                signInReject(new Error(response.error));
+                signInReject = null;
+                signInResolve = null;
+              }
               console.error('Google Auth Error:', response);
               return;
             }
-            if (response.access_token && response.expires_in) {
-              saveTokenToStorage(response.access_token, response.expires_in);
+
+            if (response.access_token) {
+              // Pastikan expires_in dikonversi ke number (Google mengembalikan detik)
+              const expiresIn = response.expires_in ? parseInt(response.expires_in) : 3600;
+              saveTokenToStorage(response.access_token, expiresIn);
+              
+              if (signInResolve) {
+                signInResolve(response.access_token);
+                signInResolve = null;
+                signInReject = null;
+              }
             }
           },
         });
@@ -135,20 +152,12 @@ export function refreshTokenSilently(): Promise<string> {
       return reject(new Error('Google Drive belum diinisialisasi'));
     }
 
-    tokenClient.callback = (response: any) => {
-      if (response.error) {
-        console.warn('Silent refresh gagal:', response.error);
-        clearTokenStorage();
-        reject(new Error(response.error));
-        return;
-      }
-      
-      if (response.access_token && response.expires_in) {
-        saveTokenToStorage(response.access_token, response.expires_in);
-        resolve(response.access_token);
-      } else {
-        reject(new Error('Tidak ada token yang diterima'));
-      }
+    // Simpan handler untuk dipanggil oleh callback tunggal
+    signInResolve = resolve;
+    signInReject = (err) => {
+      console.warn('Silent refresh gagal:', err);
+      clearTokenStorage();
+      reject(err);
     };
 
     tokenClient.requestAccessToken({ prompt: 'none' });
@@ -168,21 +177,9 @@ export function signInWithGoogle(): Promise<string> {
       return reject(new Error('Google Drive belum diinisialisasi'));
     }
 
-    tokenClient.callback = (response: any) => {
-      if (response.error) {
-        reject(new Error(response.error));
-        return;
-      }
-      
-      // Simpan token + expiry
-      if (response.access_token && response.expires_in) {
-        saveTokenToStorage(response.access_token, response.expires_in);
-      } else {
-        accessToken = response.access_token;
-      }
-      
-      resolve(accessToken!);
-    };
+    // Simpan handler untuk dipanggil oleh callback tunggal
+    signInResolve = resolve;
+    signInReject = reject;
 
     tokenClient.requestAccessToken({ prompt: 'consent' });
   });
