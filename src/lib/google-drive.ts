@@ -51,6 +51,8 @@ export function initializeGoogleDrive(): Promise<void> {
           client_id: CLIENT_ID,
           scope: SCOPES,
           callback: (response: any) => {
+            console.log('masuk')
+            console.log(response)
             if (response.error) {
               console.error('Google Auth Error:', response);
               return;
@@ -119,7 +121,38 @@ function clearTokenStorage() {
 
 function isTokenStillValid(): boolean {
   if (!tokenExpiry) return false;
-  return Date.now() < tokenExpiry;
+  // Tambahkan buffer 5 menit (300.000 ms) untuk mengantisipasi selisih waktu server & network latency
+  const BUFFER_MS = 5 * 60 * 1000;
+  return Date.now() < (tokenExpiry - BUFFER_MS);
+}
+
+/**
+ * Mencoba memperbarui token secara diam-diam (tanpa popup) jika memungkinkan.
+ */
+export function refreshTokenSilently(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!tokenClient) {
+      return reject(new Error('Google Drive belum diinisialisasi'));
+    }
+
+    tokenClient.callback = (response: any) => {
+      if (response.error) {
+        console.warn('Silent refresh gagal:', response.error);
+        clearTokenStorage();
+        reject(new Error(response.error));
+        return;
+      }
+      
+      if (response.access_token && response.expires_in) {
+        saveTokenToStorage(response.access_token, response.expires_in);
+        resolve(response.access_token);
+      } else {
+        reject(new Error('Tidak ada token yang diterima'));
+      }
+    };
+
+    tokenClient.requestAccessToken({ prompt: 'none' });
+  });
 }
 
 export function getTokenExpiryTime(): number | null {
@@ -163,12 +196,15 @@ export function signOutFromGoogle() {
  * Mendapatkan info user dari Google
  */
 export async function getUserInfo(): Promise<{ id: string; email: string; name: string } | null> {
-  if (!accessToken) return null;
+  if (!accessToken || !isTokenStillValid()) {
+    return null;
+  }
 
   try {
     const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+    
     if (res.ok) {
       const data = await res.json();
       return {
@@ -177,6 +213,11 @@ export async function getUserInfo(): Promise<{ id: string; email: string; name: 
         name: data.name,
       };
     }
+
+    if (res.status === 401) {
+      console.warn('Google Token expired or invalid');
+      clearTokenStorage();
+    }
   } catch (err) {
     console.error('Error fetching user info:', err);
   }
@@ -184,17 +225,48 @@ export async function getUserInfo(): Promise<{ id: string; email: string; name: 
 }
 
 /**
+ * Memastikan token valid sebelum melakukan request.
+ * Jika tidak valid, mencoba silent refresh. Jika gagal, melempar error.
+ */
+async function ensureValidToken(): Promise<string> {
+  // 1. Jika token masih valid, gunakan yang ada
+  if (accessToken && isTokenStillValid()) {
+    return accessToken;
+  }
+
+  // 2. Jika tidak valid/hampir habis, coba restore dari storage dulu
+  if (restoreTokenFromStorage() && isTokenStillValid()) {
+    return accessToken!;
+  }
+
+  // 3. Jika tetap tidak valid, coba Silent Refresh
+  try {
+    console.log('Mencoba silent refresh token...');
+    return await refreshTokenSilently();
+  } catch (err) {
+    clearTokenStorage();
+    throw new Error('UNAUTHORIZED: Sesi Google Drive telah berakhir, silakan login kembali.');
+  }
+}
+
+/**
  * Mendapatkan atau membuat file money_manager_data.json
  */
 async function getOrCreateDataFile(): Promise<string | null> {
-  if (!accessToken) throw new Error('Belum login ke Google');
+  const token = await ensureValidToken();
 
   try {
     // Cari file yang sudah ada
     const searchRes = await fetch(
       `https://www.googleapis.com/drive/v3/files?q=name='money_manager_data.json' and trashed=false`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
+      { headers: { Authorization: `Bearer ${token}` } }
     );
+    
+    if (searchRes.status === 401) {
+      clearTokenStorage();
+      throw new Error('UNAUTHORIZED');
+    }
+
     const searchData = await searchRes.json();
 
     if (searchData.files?.length > 0) {
@@ -205,7 +277,7 @@ async function getOrCreateDataFile(): Promise<string | null> {
     const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -214,9 +286,15 @@ async function getOrCreateDataFile(): Promise<string | null> {
       }),
     });
 
+    if (createRes.status === 401) {
+      clearTokenStorage();
+      throw new Error('UNAUTHORIZED');
+    }
+
     const newFile = await createRes.json();
     return newFile.id || null;
-  } catch (err) {
+  } catch (err: any) {
+    if (err.message === 'UNAUTHORIZED') throw err;
     console.error('Error getOrCreateDataFile:', err);
     return null;
   }
@@ -226,20 +304,28 @@ async function getOrCreateDataFile(): Promise<string | null> {
  * Download data dari Google Drive
  */
 export async function downloadFromDrive(): Promise<any | null> {
-  if (!accessToken) throw new Error('Belum login ke Google');
-
-  const fileId = await getOrCreateDataFile();
-  if (!fileId) return null;
-
   try {
+    const token = await ensureValidToken();
+    const fileId = await getOrCreateDataFile();
+    if (!fileId) return null;
+
     const res = await fetch(
       `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
+      { headers: { Authorization: `Bearer ${token}` } }
     );
-    console.log(res)
+    
+    if (res.status === 401) {
+      clearTokenStorage();
+      throw new Error('UNAUTHORIZED');
+    }
+
     if (!res.ok) return null;
     return await res.json();
-  } catch (err) {
+  } catch (err: any) {
+    if (err.message === 'UNAUTHORIZED') {
+      console.warn('Download gagal: Sesi berakhir');
+      return null;
+    }
     console.error('Download error:', err);
     return null;
   }
@@ -249,12 +335,11 @@ export async function downloadFromDrive(): Promise<any | null> {
  * Upload data ke Google Drive
  */
 export async function uploadToDrive(data: any): Promise<boolean> {
-  if (!accessToken) throw new Error('Belum login ke Google');
-
-  const fileId = await getOrCreateDataFile();
-  if (!fileId) return false;
-
   try {
+    const token = await ensureValidToken();
+    const fileId = await getOrCreateDataFile();
+    if (!fileId) return false;
+
     const metadata = { name: 'money_manager_data.json' };
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
@@ -264,13 +349,22 @@ export async function uploadToDrive(data: any): Promise<boolean> {
       `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`,
       {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: form,
       }
     );
 
+    if (res.status === 401) {
+      clearTokenStorage();
+      throw new Error('UNAUTHORIZED');
+    }
+
     return res.ok;
-  } catch (err) {
+  } catch (err: any) {
+    if (err.message === 'UNAUTHORIZED') {
+      console.warn('Upload gagal: Sesi berakhir');
+      return false;
+    }
     console.error('Upload error:', err);
     return false;
   }
