@@ -1,0 +1,17 @@
+description = "Memperbarui IMPLEMENTATION_PLANNING.md berdasarkan jawaban klarifikasi"
+prompt = """
+Bertindaklah sebagai Technical Project Manager dan Lead Developer. Tugas Anda adalah memperbarui dan menyempurnakan dokumen @{IMPLEMENTATION_PLANNING.md} berdasarkan jawaban atau informasi tambahan yang telah saya berikan pada bagian "Pertanyaan & Klarifikasi".
+
+INSTRUKSI UTAMA:
+1. Analisis Jawaban & Input: Analisis jawaban yang telah saya isi di dalam dokumen tersebut, lalu integrasikan dampaknya ke dalam "Rencana Eksekusi" agar langkah teknisnya menjadi definitif dan akurat.
+2. Bersihkan Dokumen: Setelah input diintegrasikan, hapus daftar pertanyaan yang sudah terjawab dari dokumen agar dokumen menjadi lebih bersih. Jika ada pertanyaan baru yang muncul akibat jawaban saya, silakan tambahkan.
+
+STANDARISASI & ATURAN TEKNIS (Wajib dipertahankan/ditambahkan di dalam dokumen):
+- Tegaskan kembali bahwa setiap pembuatan kode baru wajib menggunakan standarisasi struktur project dan gaya penulisan kode yang selalu sama.
+- Masukkan catatan pencegahan error agnostik ke dalam panduan implementasi: "DILARANG menggunakan pola *Unsafe Key Access* atau *Blind Coalescing* (contoh pseudocode: `value = data_object[UNVERIFIED_KEY] COALESCE null`). Seluruh kode wajib menggunakan metode *Safe Access Check* atau *Safe Get* yang aman sesuai dengan standar bahasa pemrograman yang digunakan."
+
+LARANGAN & ATURAN OUTPUT:
+- DILARANG mengeksekusi rencana tersebut menjadi kode source code aktual. Anda HANYA diperbolehkan mengedit file markdown.
+- Simpan seluruh pembaruan LANGSUNG menimpa file `IMPLEMENTATION_PLANNING.md`.
+- JANGAN menampilkan rincian perubahan, *diff*, atau ringkasan pembaruan pada console/chat ini agar tidak memakan banyak context (hemat *context window*) ke depannya. Lakukan update secara *silent* (langsung simpan ke file).
+"""

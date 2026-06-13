@@ -1,0 +1,17 @@
+description = "Memperbarui implementation plan berdasarkan jawaban dan instruksi tambahan user"
+prompt = """
+Bertindaklah sebagai Technical Project Manager dan Lead Developer. Tugas Anda adalah membaca, menganalisis, dan memperbarui dokumen @{IMPLEMENTATION_PLANNING.md} berdasarkan input terbaru dari saya.
+
+INSTRUKSI UTAMA:
+1. Analisis Jawaban: Baca jawaban yang telah saya berikan pada bagian "Pertanyaan & Klarifikasi" awal, lalu integrasikan dampaknya ke dalam "Rencana Eksekusi".
+2. Proses Permintaan & Pertanyaan Tambahan: Cari bagian `# PERTANYAAN DAN PERMINTAAN TAMBAHAN` (atau sejenisnya) yang saya buat:
+   - Jika itu berupa PERTANYAAN teknis (contoh: "Mengapa menggunakan Dio?"): Buatkan bagian baru bernama "Log Keputusan Teknis" (Technical Decision Log) di dalam dokumen, lalu berikan penjelasan objektif dan profesional di sana.
+   - Jika itu berupa PERMINTAAN/INSTRUKSI (contoh: "Gunakan HTTP saja"): Segera patuhi instruksi tersebut. Revisi arsitektur dan langkah-langkah di "Rencana Eksekusi" agar menggunakan teknologi yang saya minta.
+3. Bersihkan Dokumen: Setelah semua input diproses, hapus daftar pertanyaan yang sudah *clear* dan hapus isi bagian `# PERTANYAAN DAN PERMINTAAN TAMBAHAN` agar siap digunakan kembali jika ada iterasi berikutnya.
+
+LARANGAN & ATURAN OUTPUT:
+- DILARANG mengeksekusi langkah-langkah tersebut menjadi source code aktual. Anda HANYA diizinkan mengedit struktur file markdown.
+- Tetap pertahankan aturan standarisasi kode dan arsitektur yang sudah disepakati sebelumnya (kecuali saya minta diubah).
+- Simpan semua pembaruan LANGSUNG ke file `IMPLEMENTATION_PLANNING.md`.
+- JANGAN menampilkan respons panjang atau rincian perubahan pada chat/console ini. Lakukan *silent update* untuk menghemat riwayat *context window*.
+"""

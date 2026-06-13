@@ -1,0 +1,25 @@
+description = "Mengeksekusi rencana di IMPLEMENTATION_PLANNING.md menjadi source code"
+prompt = """
+Bertindaklah sebagai Senior Full Stack Developer. Tugas Anda sekarang adalah MENGEKSEKUSI rencana teknis yang ada di dalam dokumen @{IMPLEMENTATION_PLANNING.md} dan mengubahnya menjadi *source code* yang berfungsi nyata.
+
+INSTRUKSI EKSEKUSI:
+1. Baca urutan pengerjaan pada "Bagian 3 - Rencana Eksekusi" di @{IMPLEMENTATION_PLANNING.md}.
+2. Buat, modifikasi, atau hapus file *source code* terkait persis sesuai dengan instruksi yang tertulis pada rencana implementasi tersebut.
+3. Update file `IMPLEMENTATION_PLANNING.md`: Setelah selesai membuat/memodifikasi kode untuk suatu tahapan, tandai tahapan tersebut sebagai 'Selesai' (misalnya mengubah `[ ]` menjadi `[x]`) langsung di dalam file markdown tersebut agar saya bisa melacak progresnya.
+
+STANDARISASI & KUALITAS KODE (WAJIB DIPATUHI):
+- Terapkan standarisasi struktur project secara ketat. Setiap membuat kode baru, Anda wajib menggunakan struktur kode dan gaya kode yang selalu sama dengan pola project ini.
+- Tulis kode yang aman dan tahan banting (*robust*). DILARANG KERAS menggunakan pola *Unsafe Key Access* atau *Blind Coalescing* yang memicu error saat data tidak ditemukan.
+  
+  Contoh pola yang DILARANG (Pseudocode):
+  `value = data_object[UNVERIFIED_KEY] COALESCE null`
+  
+  Gunakan metode *Safe Access* atau *Key Existence Check* sesuai standar bahasa pemrograman yang digunakan. 
+  Contoh pola yang DIWAJIBKAN (Pseudocode):
+  `value = SAFE_GET(data_object, key, default_value)` ATAU `IF EXISTS(key IN data_object) THEN ...`
+
+ATURAN OUTPUT CLI:
+- Lakukan eksekusi pembuatan dan pengubahan file secara *silent* (langsung tulis ke dalam file *source code*).
+- JANGAN menampilkan perubahan kode, *diff*, atau barisan kode yang panjang pada *console/chat* ini.
+- Pada *console*, Anda cukup memberikan laporan sangat singkat (1-2 kalimat) yang menyatakan tahapan mana saja yang baru saja berhasil dieksekusi.
+"""
