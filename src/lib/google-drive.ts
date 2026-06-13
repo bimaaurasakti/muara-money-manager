@@ -160,6 +160,30 @@ export function signOutFromGoogle() {
 }
 
 /**
+ * Mendapatkan info user dari Google
+ */
+export async function getUserInfo(): Promise<{ id: string; email: string; name: string } | null> {
+  if (!accessToken) return null;
+
+  try {
+    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        id: data.sub,
+        email: data.email,
+        name: data.name,
+      };
+    }
+  } catch (err) {
+    console.error('Error fetching user info:', err);
+  }
+  return null;
+}
+
+/**
  * Mendapatkan atau membuat file money_manager_data.json
  */
 async function getOrCreateDataFile(): Promise<string | null> {

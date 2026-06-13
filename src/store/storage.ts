@@ -17,7 +17,7 @@ export interface MoneyManagerData {
 
 export const getStoredData = (): MoneyManagerData => {
   if (typeof window === 'undefined') {
-    return { transactions: [], deviceId: null, lastSyncTime: null };
+    return { transactions: [], deviceId: null, lastSyncTime: null, user: undefined };
   }
 
   try {
@@ -33,6 +33,7 @@ export const getStoredData = (): MoneyManagerData => {
     transactions: [],
     deviceId: null,
     lastSyncTime: null,
+    user: undefined,
   };
 };
 

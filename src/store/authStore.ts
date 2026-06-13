@@ -7,15 +7,18 @@ import {
   isSignedInToGoogle,
   downloadFromDrive,
   uploadToDrive,
+  getUserInfo,
 } from '@/lib/google-drive';
 import { mergeTransactions } from '@/features/sync/merge';
 import type { Transaction } from '@/types/transaction';
-import { getStoredData, saveStoredData } from './storage';
+import { getStoredData, saveStoredData, clearStoredData } from './storage';
+import { useTransactionStore } from './transactionStore';
 
 interface AuthState {
   isSignedIn: boolean;
   isInitializing: boolean;
   isSyncing: boolean;
+  user: { id: string; email: string; name: string } | null;
   error: string | null;
   lastSyncTime: string | null;
 
@@ -37,6 +40,7 @@ export const useAuthStore = create<AuthState>()(
       isSignedIn: false,
       isInitializing: true,
       isSyncing: false,
+      user: null,
       error: null,
       lastSyncTime: null,
 
@@ -45,12 +49,23 @@ export const useAuthStore = create<AuthState>()(
         try {
           await initializeGoogleDrive();
           const signedIn = isSignedInToGoogle();
-          set({ isSignedIn: signedIn });
-
-          // Ambil lastSyncTime dari centralized storage
-          const data = getStoredData();
-          if (data.lastSyncTime) {
-            set({ lastSyncTime: data.lastSyncTime });
+          
+          const storedData = getStoredData();
+          
+          if (signedIn) {
+            const user = await getUserInfo();
+            
+            // Validasi: Jika user yang login berbeda dengan data di storage, bersihkan storage
+            if (user && storedData.user && user.id !== storedData.user.id) {
+              console.warn('User mismatch detected. Clearing local data.');
+              clearStoredData();
+              useTransactionStore.getState().clearAll();
+              set({ user, isSignedIn: true, lastSyncTime: null });
+            } else {
+              set({ user, isSignedIn: true, lastSyncTime: storedData.lastSyncTime || null });
+            }
+          } else {
+            set({ isSignedIn: false, user: null, lastSyncTime: storedData.lastSyncTime || null });
           }
         } catch (error) {
           console.error('Failed to initialize Google Drive', error);
@@ -63,8 +78,21 @@ export const useAuthStore = create<AuthState>()(
         set({ error: null });
         try {
           await signInWithGoogle();
-          set({ isSignedIn: true });
-          return true;
+          const user = await getUserInfo();
+          
+          if (user) {
+            const storedData = getStoredData();
+            // Jika ada data lokal dari user lain, bersihkan dulu sebelum login
+            if (storedData.user && storedData.user.id !== user.id) {
+              clearStoredData();
+              useTransactionStore.getState().clearAll();
+            }
+            
+            set({ isSignedIn: true, user });
+            saveStoredData({ user });
+            return true;
+          }
+          return false;
         } catch (err: any) {
           set({ error: err.message || 'Login gagal' });
           return false;
@@ -73,12 +101,16 @@ export const useAuthStore = create<AuthState>()(
 
       signOut: () => {
         signOutFromGoogle();
+        // Bersihkan data lokal saat logout untuk keamanan & mencegah data overlap
+        clearStoredData();
+        useTransactionStore.getState().clearAll();
+        
         set({
           isSignedIn: false,
+          user: null,
           lastSyncTime: null,
           error: null,
         });
-        // Data di money_manager_data tetap dipertahankan setelah logout.
       },
 
       syncNow: async (currentTransactions, onMerged) => {

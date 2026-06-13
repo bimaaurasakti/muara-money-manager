@@ -8,15 +8,19 @@ import {
   downloadFromDrive,
   uploadToDrive,
   isSignedInToGoogle,
+  getUserInfo,
 } from '@/lib/google-drive';
 import type { Transaction } from '@/types/transaction';
 import { mergeTransactions } from '@/features/sync/merge';
+import { clearStoredData, getStoredData, saveStoredData } from '@/store/storage';
+import { useTransactionStore } from '@/store/transactionStore';
 
 export function useGoogleDriveSync() {
   const [isSignedIn, setIsSignedIn] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true); // ← Tambahan
+  const [isInitializing, setIsInitializing] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [user, setUser] = useState<{ id: string; email: string; name: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Inisialisasi Google Drive + restore login state jika token masih valid
@@ -28,8 +32,16 @@ export function useGoogleDriveSync() {
       const stillSignedIn = isSignedInToGoogle();
       if (stillSignedIn) {
         setIsSignedIn(true);
+        const userInfo = await getUserInfo();
+        setUser(userInfo);
+
+        const storedData = getStoredData();
+        if (userInfo && storedData.user && userInfo.id !== storedData.user.id) {
+          clearStoredData();
+          useTransactionStore.getState().clearAll();
+        }
       }
-      setIsInitializing(false); // ← Selesai inisialisasi
+      setIsInitializing(false);
     };
     initGoogle();
   }, []);
@@ -46,28 +58,22 @@ export function useGoogleDriveSync() {
   const signIn = useCallback(async () => {
     setError(null);
     try {
-      const token = await signInWithGoogle();
-      setIsSignedIn(true);
-
-      // Ambil info user Google
-      try {
-        // const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        //   headers: { Authorization: `Bearer ${token}` },
-        // });
-        // if (res.ok) {
-        //   const userData = await res.json();
-        //   // Simpan user info (bisa dikembangkan lebih lanjut)
-        //   localStorage.setItem('google_user_info', JSON.stringify({
-        //     id: userData.sub,
-        //     email: userData.email,
-        //     name: userData.name,
-        //   }));
-        // }
-      } catch (e) {
-        console.warn('Gagal mengambil info user');
+      await signInWithGoogle();
+      const userInfo = await getUserInfo();
+      
+      if (userInfo) {
+        const storedData = getStoredData();
+        if (storedData.user && storedData.user.id !== userInfo.id) {
+          clearStoredData();
+          useTransactionStore.getState().clearAll();
+        }
+        
+        setIsSignedIn(true);
+        setUser(userInfo);
+        saveStoredData({ user: userInfo });
+        return true;
       }
-
-      return true;
+      return false;
     } catch (err: any) {
       setError(err.message || 'Gagal login ke Google');
       return false;
@@ -79,9 +85,12 @@ export function useGoogleDriveSync() {
    */
   const signOut = useCallback(() => {
     signOutFromGoogle();
+    clearStoredData();
+    useTransactionStore.getState().clearAll();
+    
     setIsSignedIn(false);
+    setUser(null);
     setLastSyncTime(null);
-    localStorage.removeItem('google_user_info');
   }, []);
 
   /**
