@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   initializeGoogleDrive,
   signInWithGoogle,
@@ -14,6 +14,8 @@ import type { Transaction } from '@/types/transaction';
 import { mergeTransactions } from '@/features/sync/merge';
 import { clearStoredData, getStoredData, saveStoredData } from '@/store/storage';
 import { useTransactionStore } from '@/store/transactionStore';
+import { toast } from 'sonner';
+import { isOnline } from '@/utils/offlineManager';
 
 export function useGoogleDriveSync() {
   const [isSignedIn, setIsSignedIn] = useState(false);
@@ -23,12 +25,14 @@ export function useGoogleDriveSync() {
   const [user, setUser] = useState<{ id: string; email: string; name: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
   // Inisialisasi Google Drive + restore login state jika token masih valid
   useEffect(() => {
     const initGoogle = async () => {
       setIsInitializing(true);
       await initializeGoogleDrive();
-      
+
       const stillSignedIn = isSignedInToGoogle();
       if (stillSignedIn) {
         setIsSignedIn(true);
@@ -60,14 +64,14 @@ export function useGoogleDriveSync() {
     try {
       await signInWithGoogle();
       const userInfo = await getUserInfo();
-      
+
       if (userInfo) {
         const storedData = getStoredData();
         if (storedData.user && storedData.user.id !== userInfo.id) {
           clearStoredData();
           useTransactionStore.getState().clearAll();
         }
-        
+
         setIsSignedIn(true);
         setUser(userInfo);
         saveStoredData({ user: userInfo });
@@ -90,7 +94,7 @@ export function useGoogleDriveSync() {
     signOutFromGoogle();
     clearStoredData();
     useTransactionStore.getState().clearAll();
-    
+
     setIsSignedIn(false);
     setUser(null);
     setLastSyncTime(null);
@@ -104,12 +108,23 @@ export function useGoogleDriveSync() {
     onMerged: (merged: Transaction[]) => void
   ) => {
     if (!isSignedInToGoogle()) {
-      setError('Silakan login ke Google terlebih dahulu');
+      return false;
+    }
+
+    if (!isOnline()) {
+      toast.info('Offline: Sinkronisasi akan dilakukan saat koneksi kembali online.', {
+        id: 'sync-offline'
+      });
       return false;
     }
 
     setIsSyncing(true);
     setError(null);
+
+    // Tampilkan toast loading hanya jika proses terasa lama (> 1 detik)
+    const toastId = setTimeout(() => {
+      toast.loading('Menyelaraskan data...', { id: 'sync-loading' });
+    }, 1000);
 
     try {
       // 1. Download data dari Drive
@@ -136,19 +151,57 @@ export function useGoogleDriveSync() {
       });
 
       if (uploadSuccess) {
+        clearTimeout(toastId);
+        toast.success('Data tersinkronisasi', { id: 'sync-loading', duration: 2000 });
         setLastSyncTime(new Date().toISOString());
+
+        // Bersihkan queue jika ada
+        const { removeFromQueue, syncQueue } = useTransactionStore.getState();
+        if (syncQueue.length > 0) {
+          removeFromQueue(syncQueue);
+        }
+
         return true;
       } else {
-        setError('Gagal mengupload data ke Google Drive');
-        return false;
+        throw new Error('Gagal mengupload data');
       }
     } catch (err: any) {
+      clearTimeout(toastId);
+      toast.error('Gagal menyelaraskan. Perubahan disimpan lokal.', { id: 'sync-loading' });
       setError(err.message || 'Terjadi kesalahan saat sinkronisasi');
       return false;
     } finally {
       setIsSyncing(false);
     }
   }, []);
+
+  /**
+   * Sinkronisasi dengan Debounce
+   */
+  const syncWithDebounce = useCallback(() => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+
+    debounceTimer.current = setTimeout(async () => {
+      const state = useTransactionStore.getState();
+      const stillSignedIn = isSignedInToGoogle();
+
+      if (stillSignedIn) {
+        await syncNow(state.transactions, (merged) => {
+          state.replaceTransactions(merged);
+        });
+      } else if (user) {
+        // Pernah login tapi token habis, ingatkan untuk re-auth
+        toast.error('Sesi Google Drive berakhir. Silakan login kembali.', {
+          action: {
+            label: 'Login',
+            onClick: () => signIn()
+          }
+        });
+      }
+    }, 3000); // 3 detik debounce
+  }, [syncNow, user, signIn]);
 
   return {
     isSignedIn,
@@ -158,6 +211,7 @@ export function useGoogleDriveSync() {
     signIn,
     signOut,
     syncNow,
+    syncWithDebounce,
     checkSignInStatus,
   };
 }

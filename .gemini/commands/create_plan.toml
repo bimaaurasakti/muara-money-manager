@@ -1,6 +1,6 @@
 description = "Membuat Implementation Planning"
 prompt = """
-Bertindaklah sebagai Technical Project Manager. Tugas Anda SAAT INI HANYA SATU: merancang dan menulis dokumen rencana implementasi (Implementation Plan) berdasarkan file @{PLANNING.MD}.
+Bertindaklah sebagai Technical Project Manager. Tugas Anda SAAT INI HANYA SATU: merancang dan menulis dokumen rencana implementasi (Implementation Plan) berdasarkan file @{PLANNING.md}.
 
 INSTRUKSI KRUSIAL & LARANGAN KERAS:
 1. DILARANG mengeksekusi langkah-langkah yang ada di dalam planning.
@@ -8,7 +8,7 @@ INSTRUKSI KRUSIAL & LARANGAN KERAS:
 3. Anda HANYA diizinkan untuk meng-generate teks dan menyimpannya ke dalam SATU file yaitu: `IMPLEMENTATION_PLANNING.md`.
 
 Ketentuan isi file `IMPLEMENTATION_PLANNING.md`:
-- Bagian 1 - Klarifikasi: Jika ada detail di @{PLANNING.MD} yang ambigu atau butuh informasi tambahan agar implementasi efektif, buatkan tabel/kolom pertanyaan dengan area "Jawaban" yang kosong untuk saya isi.
+- Bagian 1 - Klarifikasi: Jika ada detail di @{PLANNING.md} yang ambigu atau butuh informasi tambahan agar implementasi efektif, buatkan tabel/kolom pertanyaan dengan area "Jawaban" yang kosong untuk saya isi.
 - Bagian 2 - Standarisasi: Masukkan poin yang mewajibkan bahwa setiap pembuatan kode baru di tahap selanjutnya harus patuh menggunakan standarisasi struktur project dan gaya penulisan kode yang selalu sama.
 - Bagian 3 - Rencana Eksekusi: Breakdown langkah-langkah implementasi teknisnya secara sistematis dan bertahap.
 

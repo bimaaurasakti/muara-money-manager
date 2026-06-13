@@ -17,43 +17,58 @@ export function mergeTransactions(
   const txMap = new Map<string, Transaction>();
   let hasChanges = false;
 
-  // 1. Masukkan semua transaksi dari remote
+  // 1. Indeks local transactions untuk pengecekan cepat
+  const localMap = new Map<string, Transaction>();
+  for (const tx of localTransactions) {
+    localMap.set(tx.id, tx);
+  }
+
+  // 2. Gunakan semua transaksi dari remote sebagai dasar
   for (const remoteTx of remoteTransactions) {
     txMap.set(remoteTx.id, { ...remoteTx });
   }
 
-  // 2. Timpa dengan local jika lebih baru (Last-Write-Wins)
+  // 3. Gabungkan dengan local menggunakan Last-Write-Wins
   for (const localTx of localTransactions) {
     const existing = txMap.get(localTx.id);
 
     if (!existing) {
-      // Transaksi baru dari local
+      // Transaksi ini hanya ada di local
       txMap.set(localTx.id, { ...localTx });
-      hasChanges = true;
     } else {
-      // Bandingkan updatedAt
+      // Bandingkan timestamp
       const localTime = new Date(localTx.updatedAt).getTime();
       const remoteTime = new Date(existing.updatedAt).getTime();
 
       if (localTime > remoteTime) {
+        // Local lebih baru, timpa remote
         txMap.set(localTx.id, { ...localTx });
-        hasChanges = true;
       }
     }
   }
 
-  // 3. Cek apakah ada transaksi baru dari remote
+  // 4. Deteksi apakah ada perbedaan antara local original dan hasil merge
   const finalTransactions = Array.from(txMap.values());
-  const originalLocalIds = new Set(localTransactions.map(t => t.id));
   
-  const newFromRemote = finalTransactions.some(tx => !originalLocalIds.has(tx.id));
-  if (newFromRemote) hasChanges = true;
+  if (finalTransactions.length !== localTransactions.length) {
+    hasChanges = true;
+  } else {
+    // Cek apakah ada konten yang berubah atau order yang berbeda jika diperlukan, 
+    // tapi di sini kita cek by content/updatedAt
+    for (const tx of finalTransactions) {
+      const local = localMap.get(tx.id);
+      if (!local || local.updatedAt !== tx.updatedAt || local.deleted !== tx.deleted) {
+        hasChanges = true;
+        break;
+      }
+    }
+  }
 
   return {
     mergedTransactions: finalTransactions.sort((a, b) => 
       new Date(b.date).getTime() - new Date(a.date).getTime()
     ),
     hasChanges,
-    conflicts: [], // Bisa dikembangkan nanti untuk deteksi konflik timestamp dekat
+    conflicts: [],
   };
 }

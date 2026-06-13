@@ -11,19 +11,25 @@ export interface MoneyManagerData {
     name: string;
   };
   transactions: any[];
+  syncQueue: string[]; // List of transaction IDs pending sync
   deviceId: string | null;
   lastSyncTime: string | null;
 }
 
 export const getStoredData = (): MoneyManagerData => {
   if (typeof window === 'undefined') {
-    return { transactions: [], deviceId: null, lastSyncTime: null, user: undefined };
+    return { transactions: [], syncQueue: [], deviceId: null, lastSyncTime: null, user: undefined };
   }
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      return {
+        ...parsed,
+        transactions: parsed.transactions || [],
+        syncQueue: parsed.syncQueue || [],
+      };
     }
   } catch (e) {
     console.error('Gagal membaca money_manager_data dari localStorage');
@@ -31,6 +37,7 @@ export const getStoredData = (): MoneyManagerData => {
 
   return {
     transactions: [],
+    syncQueue: [],
     deviceId: null,
     lastSyncTime: null,
     user: undefined,
