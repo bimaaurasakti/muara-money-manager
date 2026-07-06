@@ -209,9 +209,19 @@ export async function downloadFromDrive(): Promise<any | null> {
     }
 
     if (!res.ok) return null;
-    return await res.json();
+    const text = await res.text();
+    if (!text || text.trim() === '') {
+      // File baru kosong (baru dibuat), kembalikan null agar sync dimulai dari local
+      return null;
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      console.error('Download error: response bukan JSON yang valid', text.slice(0, 100));
+      return null;
+    }
   } catch (err: any) {
-    if (err.message === 'UNAUTHORIZED') {
+    if (err.message?.startsWith('UNAUTHORIZED')) {
       console.warn('Download gagal: Sesi berakhir');
       return null;
     }
