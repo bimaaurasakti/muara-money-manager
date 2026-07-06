@@ -14,7 +14,7 @@ import type { Transaction } from '@/types/transaction';
 import { mergeTransactions } from '@/features/sync/merge';
 import { clearStoredData, getStoredData, saveStoredData } from '@/store/storage';
 import { useTransactionStore } from '@/store/transactionStore';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { isOnline } from '@/utils/offlineManager';
 
 export function useGoogleDriveSync() {
@@ -112,7 +112,7 @@ export function useGoogleDriveSync() {
     }
 
     if (!isOnline()) {
-      toast.info('Offline: Sinkronisasi akan dilakukan saat koneksi kembali online.', {
+      toast('Offline: Sinkronisasi akan dilakukan saat koneksi kembali online.', {
         id: 'sync-offline'
       });
       return false;
@@ -152,7 +152,7 @@ export function useGoogleDriveSync() {
 
       if (uploadSuccess) {
         clearTimeout(toastId);
-        toast.success('Data tersinkronisasi', { id: 'sync-loading', duration: 2000 });
+        toast.success('Data tersinkronisasi', { id: 'sync-loading' });
         setLastSyncTime(new Date().toISOString());
 
         // Bersihkan queue jika ada
@@ -188,19 +188,29 @@ export function useGoogleDriveSync() {
       const stillSignedIn = isSignedInToGoogle();
 
       if (stillSignedIn) {
-        await syncNow(state.transactions, (merged) => {
-          state.replaceTransactions(merged);
-        });
+        try {
+          await syncNow(state.transactions, (merged) => {
+            state.replaceTransactions(merged);
+          });
+        } catch (error) {
+          console.error("Sync error:", error);
+        }
       } else if (user) {
-        // Pernah login tapi token habis, ingatkan untuk re-auth
-        toast.error('Sesi Google Drive berakhir. Silakan login kembali.', {
-          action: {
-            label: 'Login',
-            onClick: () => signIn()
-          }
-        });
+        const toastId = toast.error(
+          <span>
+            Sesi Google Drive berakhir. Silakan login kembali.{" "}
+            <button
+              onClick={() => {
+                signIn();
+                toast.dismiss(toastId);
+              }}
+            >
+              Login
+            </button>
+          </span>
+        );
       }
-    }, 3000); // 3 detik debounce
+    }, 3000);
   }, [syncNow, user, signIn]);
 
   return {

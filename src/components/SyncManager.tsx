@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { useGoogleDriveSync } from '@/hooks/useGoogleDriveSync';
 import { useTransactionStore } from '@/store/transactionStore';
 import { setupOnlineListener } from '@/utils/offlineManager';
-import { Toaster } from 'sonner';
+import { Toaster } from 'react-hot-toast';
 
 /**
  * SyncManager Component
@@ -31,5 +31,5 @@ export function SyncManager() {
     return cleanup;
   }, [isSignedIn, syncNow, transactions, replaceTransactions]);
 
-  return <Toaster richColors position="top-right" />;
+  return <Toaster position="bottom-right" />;
 }

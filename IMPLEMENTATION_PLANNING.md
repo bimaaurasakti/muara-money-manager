@@ -12,7 +12,7 @@ Setiap penulisan kode dalam tahap eksekusi wajib mematuhi aturan berikut:
 2.  **Functional Programming:** Gunakan pure functions untuk manipulasi data. Dilarang menggunakan *side-effects* di dalam fungsi logika utama.
 3.  **Explicit Typing:** Dilarang menggunakan `any`. Gunakan interface yang sudah ada di `src/types/transaction.ts`.
 4.  **Safe Access Check:** DILARANG menggunakan pola *Unsafe Key Access* atau *Blind Coalescing* (contoh pseudocode: `value = data_object[UNVERIFIED_KEY] ?? null`). Seluruh kode wajib menggunakan metode *Safe Access Check* atau *Safe Get* yang aman (misalnya: `optional chaining`, `in` operator, atau type guards).
-5.  **Error Handling:** Gunakan blok `try...catch` yang memberikan feedback spesifik kepada user melalui komponen `sonner` (toast).
+5.  **Error Handling:** Gunakan blok `try...catch` yang memberikan feedback spesifik kepada user melalui komponen `react-hot-toast` (toast).
 6.  **Single Responsibility:** Pisahkan antara logika *trigger* (di store/hook), logika *merge* (di feature/sync), dan logika *storage* (di lib/google-drive).
 
 ---
@@ -46,7 +46,7 @@ Langkah-langkah teknis dibagi menjadi 5 tahap untuk mengakomodasi fitur backgrou
 - [x] Memastikan trigger hanya dijalankan jika user telah mengaktifkan fitur sinkronisasi Google Drive.
 
 ### Tahap 5: Feedback UI (Toast System)
-- [x] Standarisasi notifikasi `sonner`:
+- [x] Standarisasi notifikasi `react-hot-toast`:
     - **Loading:** Toast loading yang tidak mengganggu interaksi.
     - **Success:** Toast sukses singkat (background sync).
     - **Offline/Error:** Toast "Offline: Perubahan disimpan secara lokal dan akan disinkronkan nanti".

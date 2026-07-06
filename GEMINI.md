@@ -9,7 +9,7 @@
 - **State Management:** Custom React Hooks, `zustand` (optional/client state)
 - **Data Validation:** `zod`
 - **Forms:** `react-hook-form` + `@hookform/resolvers`
-- **Utilities:** `date-fns` (dates), `lucide-react` (icons), `sonner` (toasts)
+- **Utilities:** `date-fns` (dates), `lucide-react` (icons), `react-hot-toast` (toasts)
 - **Testing:** `vitest`, React Testing Library
 
 # Standards
