@@ -16,6 +16,7 @@ import { clearStoredData, getStoredData, saveStoredData } from '@/store/storage'
 import { useTransactionStore } from '@/store/transactionStore';
 import toast from 'react-hot-toast';
 import { isOnline } from '@/utils/offlineManager';
+import { auth } from '@/lib/firebase';
 
 export function useGoogleDriveSync() {
   const [isSignedIn, setIsSignedIn] = useState(false);
@@ -26,28 +27,38 @@ export function useGoogleDriveSync() {
   const [error, setError] = useState<string | null>(null);
 
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const isSigningInRef = useRef(false);
 
-  // Inisialisasi Google Drive + restore login state jika token masih valid
+  // Inisialisasi Google Drive + restore login state via Firebase Auth
   useEffect(() => {
-    const initGoogle = async () => {
-      setIsInitializing(true);
-      await initializeGoogleDrive();
+    setIsInitializing(true);
+    initializeGoogleDrive();
 
-      const stillSignedIn = isSignedInToGoogle();
-      if (stillSignedIn) {
-        setIsSignedIn(true);
-        const userInfo = await getUserInfo();
-        setUser(userInfo);
+    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
+      if (firebaseUser) {
+        const stillSignedIn = isSignedInToGoogle();
+        if (stillSignedIn) {
+          setIsSignedIn(true);
+          const userInfo = await getUserInfo();
+          setUser(userInfo);
 
-        const storedData = getStoredData();
-        if (userInfo && storedData.user && userInfo.id !== storedData.user.id) {
-          clearStoredData();
-          useTransactionStore.getState().clearAll();
+          const storedData = getStoredData();
+          if (userInfo && storedData.user && userInfo.id !== storedData.user.id) {
+            clearStoredData();
+            useTransactionStore.getState().clearAll();
+          }
+        } else {
+          setIsSignedIn(false);
+          setUser(null);
         }
+      } else {
+        setIsSignedIn(false);
+        setUser(null);
       }
       setIsInitializing(false);
-    };
-    initGoogle();
+    });
+
+    return unsubscribe;
   }, []);
 
   const checkSignInStatus = useCallback(() => {
@@ -60,6 +71,8 @@ export function useGoogleDriveSync() {
    * Login ke Google
    */
   const signIn = useCallback(async () => {
+    if (isSigningInRef.current) return false;
+    isSigningInRef.current = true;
     setError(null);
     try {
       await signInWithGoogle();
@@ -75,14 +88,17 @@ export function useGoogleDriveSync() {
         setIsSignedIn(true);
         setUser(userInfo);
         saveStoredData({ user: userInfo });
+        isSigningInRef.current = false;
         return true;
       }
+      isSigningInRef.current = false;
       return false;
     } catch (err: any) {
       const errorMessage = err.message === 'popup_closed_by_user' || err.message === 'access_denied'
         ? 'Login dibatalkan oleh pengguna'
         : (err.message || 'Gagal login ke Google');
       setError(errorMessage);
+      isSigningInRef.current = false;
       return false;
     }
   }, []);
@@ -90,8 +106,8 @@ export function useGoogleDriveSync() {
   /**
    * Logout
    */
-  const signOut = useCallback(() => {
-    signOutFromGoogle();
+  const signOut = useCallback(async () => {
+    await signOutFromGoogle();
     clearStoredData();
     useTransactionStore.getState().clearAll();
 

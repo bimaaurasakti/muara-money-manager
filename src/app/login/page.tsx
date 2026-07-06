@@ -107,12 +107,20 @@ export default function LoginPage() {
           ) : (
             <button
               onClick={handleGoogleLogin}
-              className="w-full flex items-center justify-center gap-3 bg-white text-black font-semibold py-4 rounded-2xl hover:bg-zinc-100 transition-colors disabled:opacity-70"
+              disabled={isLoggingIn || isInitializing}
+              className="w-full flex items-center justify-center gap-3 bg-white text-black font-semibold py-4 rounded-2xl hover:bg-zinc-100 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              <>
-                <LogIn className="w-5 h-5" />
-                Login dengan Google
-              </>
+              {isLoggingIn ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Menghubungkan...
+                </>
+              ) : (
+                <>
+                  <LogIn className="w-5 h-5" />
+                  Login dengan Google
+                </>
+              )}
             </button>
           )}
 

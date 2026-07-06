@@ -1,25 +1,8 @@
-/**
- * Google Drive Sync Service (Client-side only)
- * 
- * Menggunakan Google Identity Services (GIS) + Drive API v3
- * Tidak ada backend server sama sekali.
- * 
- * CATATAN PENTING:
- * - Ganti `CLIENT_ID` dengan Client ID dari Google Cloud Console
- * - Aktifkan Google Drive API di project Google Cloud kamu
- * - Tambahkan origin http://localhost:3000 (dan production domain) di OAuth settings
- */
+import { signInWithPopup, signOut, GoogleAuthProvider } from 'firebase/auth';
+import { auth, googleProvider } from './firebase';
 
-const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
-const SCOPES = 'https://www.googleapis.com/auth/drive.file profile email';
-
-let tokenClient: any = null;
 let accessToken: string | null = null;
 let tokenExpiry: number | null = null; // timestamp in ms
-
-// Handler untuk Promise login
-let signInResolve: ((value: string) => void) | null = null;
-let signInReject: ((reason?: any) => void) | null = null;
 
 const TOKEN_STORAGE_KEY = 'google_access_token';
 const EXPIRY_STORAGE_KEY = 'google_token_expiry';
@@ -32,68 +15,17 @@ export interface DriveSyncStatus {
 }
 
 /**
- * Inisialisasi Google Identity Services
+ * Inisialisasi Google Drive (hanya restore token dari storage)
  */
 export function initializeGoogleDrive(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (typeof window === 'undefined') return resolve();
-
-    if (!CLIENT_ID) {
-      console.warn('⚠️ NEXT_PUBLIC_GOOGLE_CLIENT_ID belum diset di .env.local');
-    }
-
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-
-    script.onload = () => {
-      // @ts-ignore
-      if (window.google?.accounts?.oauth2) {
-        // @ts-ignore
-        tokenClient = google.accounts.oauth2.initTokenClient({
-          client_id: CLIENT_ID,
-          scope: SCOPES,
-          callback: (response: any) => {
-            console.log(response)
-            if (response.error) {
-              if (signInReject) {
-                signInReject(new Error(response.error));
-                signInReject = null;
-                signInResolve = null;
-              }
-              console.error('Google Auth Error:', response);
-              return;
-            }
-
-            if (response.access_token) {
-              // Pastikan expires_in dikonversi ke number (Google mengembalikan detik)
-              const expiresIn = response.expires_in ? parseInt(response.expires_in) : 3600;
-              saveTokenToStorage(response.access_token, expiresIn);
-              
-              if (signInResolve) {
-                signInResolve(response.access_token);
-                signInResolve = null;
-                signInReject = null;
-              }
-            }
-          },
-        });
-      }
-
-      // Coba restore token dari localStorage saat init
-      restoreTokenFromStorage();
-
-      resolve();
-    };
-
-    script.onerror = () => reject(new Error('Gagal memuat Google Identity Services'));
-    document.head.appendChild(script);
-  });
+  if (typeof window !== 'undefined') {
+    restoreTokenFromStorage();
+  }
+  return Promise.resolve();
 }
 
 export function isSignedInToGoogle(): boolean {
-  return !!accessToken && isTokenStillValid();
+  return !!auth.currentUser && !!accessToken && isTokenStillValid();
 }
 
 function saveTokenToStorage(token: string, expiresIn: number) {
@@ -143,87 +75,52 @@ function isTokenStillValid(): boolean {
   return Date.now() < (tokenExpiry - BUFFER_MS);
 }
 
-/**
- * Mencoba memperbarui token secara diam-diam (tanpa popup) jika memungkinkan.
- */
-export function refreshTokenSilently(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    if (!tokenClient) {
-      return reject(new Error('Google Drive belum diinisialisasi'));
-    }
-
-    // Simpan handler untuk dipanggil oleh callback tunggal
-    signInResolve = resolve;
-    signInReject = (err) => {
-      console.warn('Silent refresh gagal:', err);
-      clearTokenStorage();
-      reject(err);
-    };
-
-    tokenClient.requestAccessToken({ prompt: 'none' });
-  });
-}
-
 export function getTokenExpiryTime(): number | null {
   return tokenExpiry;
 }
 
 /**
- * Sign in dengan Google
+ * Sign in dengan Google via Firebase Auth
  */
-export function signInWithGoogle(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    if (!tokenClient) {
-      return reject(new Error('Google Drive belum diinisialisasi'));
-    }
+export async function signInWithGoogle(): Promise<string> {
+  googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
+  
+  const result = await signInWithPopup(auth, googleProvider);
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  const token = credential?.accessToken;
+  
+  if (!token) {
+    throw new Error('Gagal mendapatkan Google Access Token dari Firebase Auth');
+  }
 
-    // Simpan handler untuk dipanggil oleh callback tunggal
-    signInResolve = resolve;
-    signInReject = reject;
-
-    tokenClient.requestAccessToken({ prompt: 'consent' });
-  });
+  // Google access token biasanya kedaluwarsa dalam 1 jam (3600 detik)
+  saveTokenToStorage(token, 3600);
+  return token;
 }
 
-export function signOutFromGoogle() {
+export async function signOutFromGoogle() {
   clearTokenStorage();
+  await signOut(auth);
 }
 
 /**
- * Mendapatkan info user dari Google
+ * Mendapatkan info user dari Firebase Auth
  */
 export async function getUserInfo(): Promise<{ id: string; email: string; name: string } | null> {
-  if (!accessToken || !isTokenStillValid()) {
-    return null;
-  }
-
-  try {
-    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    
-    if (res.ok) {
-      const data = await res.json();
-      return {
-        id: data.sub,
-        email: data.email,
-        name: data.name,
-      };
-    }
-
-    if (res.status === 401) {
-      console.warn('Google Token expired or invalid');
-      clearTokenStorage();
-    }
-  } catch (err) {
-    console.error('Error fetching user info:', err);
+  const firebaseUser = auth.currentUser;
+  if (firebaseUser) {
+    return {
+      id: firebaseUser.uid,
+      email: firebaseUser.email || '',
+      name: firebaseUser.displayName || '',
+    };
   }
   return null;
 }
 
 /**
  * Memastikan token valid sebelum melakukan request.
- * Jika tidak valid, mencoba silent refresh. Jika gagal, melempar error.
+ * Jika tidak valid, lemparkan error unauthorized (re-auth diperlukan).
  */
 async function ensureValidToken(): Promise<string> {
   // 1. Jika token masih valid, gunakan yang ada
@@ -236,14 +133,9 @@ async function ensureValidToken(): Promise<string> {
     return accessToken!;
   }
 
-  // 3. Jika tetap tidak valid, coba Silent Refresh
-  try {
-    console.log('Mencoba silent refresh token...');
-    return await refreshTokenSilently();
-  } catch (err) {
-    clearTokenStorage();
-    throw new Error('UNAUTHORIZED: Sesi Google Drive telah berakhir, silakan login kembali.');
-  }
+  // 3. Jika tetap tidak valid, lemparkan error UNAUTHORIZED
+  clearTokenStorage();
+  throw new Error('UNAUTHORIZED: Sesi Google Drive telah berakhir, silakan login kembali.');
 }
 
 /**
