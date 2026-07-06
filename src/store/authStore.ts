@@ -105,9 +105,23 @@ export const useAuthStore = create<AuthState>()(
           set({ isSigningIn: false });
           return false;
         } catch (err: any) {
-          const errorMessage = err.message === 'popup_closed_by_user' || err.message === 'access_denied'
-            ? 'Login dibatalkan oleh pengguna'
-            : (err.message || 'Gagal login ke Google');
+          console.error('Sign in error details:', err);
+          let errorMessage = 'Gagal login ke Google';
+          
+          if (err.code === 'auth/popup-closed-by-user' || err.message === 'popup_closed_by_user') {
+            errorMessage = 'Login dibatalkan oleh pengguna (Popup ditutup).';
+          } else if (err.code === 'auth/cancelled-popup-request') {
+            errorMessage = 'Permintaan popup dibatalkan karena ada popup lain yang dibuka.';
+          } else if (err.code === 'auth/popup-blocked') {
+            errorMessage = 'Popup diblokir oleh browser. Harap izinkan popup untuk situs ini.';
+          } else if (err.code === 'auth/unauthorized-domain') {
+            errorMessage = 'Domain ini tidak diizinkan untuk Firebase Authentication.';
+          } else if (err.code) {
+            errorMessage = `Gagal login ke Google (${err.code}): ${err.message}`;
+          } else if (err.message) {
+            errorMessage = err.message;
+          }
+          
           set({ error: errorMessage, isSigningIn: false });
           return false;
         }

@@ -54,7 +54,8 @@ export default function LoginPage() {
 
         router.push('/');
       } else {
-        setError('Login gagal. Silakan coba lagi.');
+        const storeError = useAuthStore.getState().error;
+        setError(storeError || 'Login gagal. Silakan coba lagi.');
         setIsLoggingIn(false);
       }
     } catch (err: any) {
