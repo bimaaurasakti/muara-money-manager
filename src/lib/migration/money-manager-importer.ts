@@ -113,7 +113,10 @@ export async function parseMoneyManagerExcel(
       modifiedBalCount++;
       categoryName = "⚙️ Penyesuaian Saldo";
       subcategoryName = "⚙️ Penyesuaian Saldo";
-      type = rawAmount >= 0 ? "INCOME" : "EXPENSE";
+      const isExpense =
+        rawType.toLowerCase().includes("expense") ||
+        rawType.toLowerCase().includes("pengeluaran");
+      type = isExpense ? "EXPENSE" : "INCOME";
       if (type === "INCOME") incomeCount++;
       else expenseCount++;
     } else if (rawType === "Transfer-Out" || rawType.toLowerCase().includes("transfer")) {

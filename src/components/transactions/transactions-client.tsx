@@ -34,7 +34,10 @@ export interface TransactionRow {
   note: string | null;
   sourceType: string;
   transferPairId: string | null;
+  accountId?: string;
   accountName: string;
+  targetAccountId?: string | null;
+  targetAccountName?: string | null;
   categoryName: string | null;
 }
 
@@ -130,12 +133,34 @@ export function TransactionsClient({
     const matchesSearch =
       t.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.note && t.note.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (t.categoryName && t.categoryName.toLowerCase().includes(searchTerm.toLowerCase()));
+      (t.categoryName && t.categoryName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (t.targetAccountName && t.targetAccountName.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const matchesWallet =
-      selectedWallet === "ALL" || t.accountName.toLowerCase() === selectedWallet.toLowerCase();
+      selectedWallet === "ALL" ||
+      t.accountName.toLowerCase() === selectedWallet.toLowerCase() ||
+      (t.type === "TRANSFER" && t.targetAccountName?.toLowerCase() === selectedWallet.toLowerCase());
 
-    const matchesType = selectedType === "ALL" || t.type === selectedType;
+    const isTransferInForSelected =
+      selectedWallet !== "ALL" &&
+      t.type === "TRANSFER" &&
+      t.targetAccountName?.toLowerCase() === selectedWallet.toLowerCase();
+
+    const isTransferOutForSelected =
+      selectedWallet !== "ALL" &&
+      t.type === "TRANSFER" &&
+      t.accountName.toLowerCase() === selectedWallet.toLowerCase();
+
+    let matchesType = true;
+    if (selectedType === "ALL") {
+      matchesType = true;
+    } else if (selectedType === "TRANSFER") {
+      matchesType = t.type === "TRANSFER";
+    } else if (selectedType === "INCOME") {
+      matchesType = t.type === "INCOME" || isTransferInForSelected;
+    } else if (selectedType === "EXPENSE") {
+      matchesType = t.type === "EXPENSE" || isTransferOutForSelected;
+    }
 
     const matchesMonth =
       selectedMonth === "ALL" || t.date.startsWith(selectedMonth);
@@ -309,71 +334,151 @@ export function TransactionsClient({
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((tx) => (
-                <TableRow key={tx.id} className="hover:bg-white/[0.02]">
-                  <TableCell className="font-mono text-xs text-slate-300">
-                    <div>{tx.date}</div>
-                    {tx.time && <div className="text-[10px] text-slate-500">{tx.time}</div>}
-                  </TableCell>
+              filtered.map((tx) => {
+                const isTransfer = tx.type === "TRANSFER";
+                const isTargetWallet =
+                  selectedWallet !== "ALL" &&
+                  tx.targetAccountName?.toLowerCase() === selectedWallet.toLowerCase();
+                const isSourceWallet =
+                  selectedWallet !== "ALL" &&
+                  tx.accountName?.toLowerCase() === selectedWallet.toLowerCase();
 
-                  <TableCell className="font-mono text-xs text-slate-200">
-                    {tx.accountName}
-                  </TableCell>
+                const isTransferIn = isTransfer && isTargetWallet;
+                const isTransferOut = isTransfer && isSourceWallet;
 
-                  <TableCell>
-                    <div className="font-medium text-slate-100 text-xs sm:text-sm line-clamp-1">
-                      {tx.description}
+                // Amount & Sign & Color
+                const displayAmount = isTransferOut ? -tx.amount : tx.amount;
+                const displayColor = isTransferIn
+                  ? "income"
+                  : isTransferOut
+                  ? "expense"
+                  : tx.type === "INCOME"
+                  ? "income"
+                  : tx.type === "EXPENSE"
+                  ? "expense"
+                  : "transfer";
+
+                const showSign = isTransfer ? (isTransferIn || isTransferOut) : true;
+
+                // Account column display
+                const accountDisplay =
+                  isTransfer && selectedWallet === "ALL" ? (
+                    <div className="flex items-center gap-1.5 font-mono text-xs">
+                      <span className="text-slate-200">{tx.accountName}</span>
+                      <span className="text-slate-500">➔</span>
+                      <span className="text-indigo-400 font-semibold">
+                        {tx.targetAccountName || tx.categoryName || "Target"}
+                      </span>
                     </div>
-                    {tx.note && <div className="text-[11px] text-slate-500">{tx.note}</div>}
-                  </TableCell>
+                  ) : isTransferIn ? (
+                    <div>
+                      <div className="font-mono text-xs text-emerald-400 font-semibold">
+                        {tx.targetAccountName}
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-mono">
+                        dari {tx.accountName}
+                      </div>
+                    </div>
+                  ) : isTransferOut ? (
+                    <div>
+                      <div className="font-mono text-xs text-rose-400 font-semibold">
+                        {tx.accountName}
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-mono">
+                        ke {tx.targetAccountName || tx.categoryName}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="font-mono text-xs text-slate-200">{tx.accountName}</div>
+                  );
 
-                  <TableCell className="text-xs text-slate-400">
-                    {tx.categoryName || "—"}
-                  </TableCell>
+                // Description display
+                const descriptionDisplay = isTransferIn ? (
+                  tx.description && tx.description !== "🔄 Pindah Uang"
+                    ? tx.description
+                    : `Transfer masuk dari ${tx.accountName}`
+                ) : isTransferOut ? (
+                  tx.description && tx.description !== "🔄 Pindah Uang"
+                    ? tx.description
+                    : `Transfer keluar ke ${tx.targetAccountName || "Akun Tujuan"}`
+                ) : (
+                  tx.description
+                );
 
-                  <TableCell className="text-right">
-                    <TabularCurrency
-                      cents={tx.amount}
-                      size="sm"
-                      color={
-                        tx.type === "INCOME"
-                          ? "income"
-                          : tx.type === "EXPENSE"
-                          ? "expense"
-                          : "transfer"
-                      }
-                      showSign={tx.type !== "TRANSFER"}
-                    />
-                  </TableCell>
-
-                  <TableCell className="text-center">
-                    <Badge
-                      variant={
-                        tx.type === "INCOME"
-                          ? "income"
-                          : tx.type === "EXPENSE"
-                          ? "expense"
-                          : "transfer"
-                      }
-                    >
-                      {tx.type === "INCOME"
-                        ? "Pemasukan"
+                // Badge display
+                const badge = isTransferIn ? (
+                  <Badge variant="income" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                    Transfer Masuk
+                  </Badge>
+                ) : isTransferOut ? (
+                  <Badge variant="expense" className="bg-rose-500/10 text-rose-400 border-rose-500/20">
+                    Transfer Keluar
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant={
+                      tx.type === "INCOME"
+                        ? "income"
                         : tx.type === "EXPENSE"
-                        ? "Pengeluaran"
-                        : "Transfer"}
-                    </Badge>
-                  </TableCell>
+                        ? "expense"
+                        : "transfer"
+                    }
+                  >
+                    {tx.type === "INCOME"
+                      ? "Pemasukan"
+                      : tx.type === "EXPENSE"
+                      ? "Pengeluaran"
+                      : "Transfer"}
+                  </Badge>
+                );
 
-                  <TableCell>
-                    {tx.type === "TRANSFER" && (
-                      <ContraPairTether
-                        pairId={tx.transferPairId}
-                        targetWalletName={tx.categoryName === "🔄 Pindah Uang" ? null : tx.categoryName}
+                return (
+                  <TableRow key={tx.id + (isTransferIn ? "-in" : "")} className="hover:bg-white/[0.02]">
+                    <TableCell className="font-mono text-xs text-slate-300">
+                      <div>{tx.date}</div>
+                      {tx.time && <div className="text-[10px] text-slate-500">{tx.time}</div>}
+                    </TableCell>
+
+                    <TableCell>{accountDisplay}</TableCell>
+
+                    <TableCell>
+                      <div className="font-medium text-slate-100 text-xs sm:text-sm line-clamp-1">
+                        {descriptionDisplay}
+                      </div>
+                      {tx.note && <div className="text-[11px] text-slate-500">{tx.note}</div>}
+                    </TableCell>
+
+                    <TableCell className="text-xs text-slate-400">
+                      {tx.categoryName || "—"}
+                    </TableCell>
+
+                    <TableCell className="text-right">
+                      <TabularCurrency
+                        cents={displayAmount}
+                        size="sm"
+                        color={displayColor}
+                        showSign={showSign}
                       />
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))
+                    </TableCell>
+
+                    <TableCell className="text-center">{badge}</TableCell>
+
+                    <TableCell>
+                      {isTransfer && (
+                        <ContraPairTether
+                          pairId={tx.transferPairId}
+                          targetWalletName={
+                            isTransferIn
+                              ? `dari ${tx.accountName}`
+                              : tx.targetAccountName ||
+                                (tx.categoryName === "🔄 Pindah Uang" ? null : tx.categoryName)
+                          }
+                        />
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>

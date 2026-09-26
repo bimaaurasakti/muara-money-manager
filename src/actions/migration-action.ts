@@ -236,11 +236,17 @@ export async function runLegacyMigrationAction(
       const totalTransferOut = Number(transferOutResult[0]?.sum || 0);
       const totalTransferIn = Number(transferInResult[0]?.sum || 0);
 
-      const netBalance = acc.initialBalance + totalIncome - totalExpense - totalTransferOut + totalTransferIn;
+      let initialBal = acc.initialBalance;
+      if (acc.name === "Blu (Monthly Pocket)" && initialBal === 0) {
+        initialBal = 52299939;
+      }
+
+      const netBalance = initialBal + totalIncome - totalExpense - totalTransferOut + totalTransferIn;
 
       await db
         .update(accounts)
         .set({
+          initialBalance: initialBal,
           currentBalance: netBalance,
           updatedAt: sql`CURRENT_TIMESTAMP`,
         })

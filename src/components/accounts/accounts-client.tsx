@@ -35,9 +35,20 @@ export function AccountsClient({ initialAccounts }: AccountsClientProps) {
   const [accountList, setAccountList] = React.useState<Account[]>(initialAccounts);
   const isBalanceHidden = usePrivacyStore((s) => s.isBalanceHidden);
 
-  const totalNetWorthCents = accountList.reduce((sum, acc) => sum + acc.currentBalance, 0);
+  const totalPositiveAssetsCents = accountList
+    .filter((acc) => acc.currentBalance > 0)
+    .reduce((sum, acc) => sum + acc.currentBalance, 0);
+
+  const totalLiabilitiesCents = accountList
+    .filter((acc) => acc.currentBalance < 0)
+    .reduce((sum, acc) => sum + Math.abs(acc.currentBalance), 0);
+
+  const totalNetWorthCents = totalPositiveAssetsCents - totalLiabilitiesCents;
 
   const getCardTheme = (acc: Account) => {
+    if (acc.currentBalance < 0) {
+      return "border-rose-500/40 bg-gradient-to-br from-slate-900 via-rose-950/25 to-slate-950";
+    }
     const name = acc.name.toLowerCase();
     if (name.includes("mandiri")) {
       return "border-amber-500/40 bg-gradient-to-br from-slate-900 via-amber-950/20 to-slate-950";
@@ -66,37 +77,78 @@ export function AccountsClient({ initialAccounts }: AccountsClientProps) {
             Portofolio Rekening &amp; Dompet
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 font-sans mt-1">
-            Manajemen saldo real-time dan buku besar 16 kantong keuangan pengguna.
+            Manajemen saldo real-time dan buku besar {accountList.length} kantong keuangan pengguna.
           </p>
         </div>
       </div>
 
-      {/* Net Worth Hero Bento */}
+      {/* Net Worth Hero Bento: 3-Tier Metrics */}
       <Card className="p-6 relative overflow-hidden bg-gradient-to-r from-emerald-950/40 via-slate-900 to-indigo-950/40 border-white/15">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs font-mono text-emerald-400">
-              <ShieldCheck className="w-4 h-4" />
-              <span>TOTAL KEKAYAAN BERSIH (NET WORTH)</span>
-              <PrivacyToggle size="sm" />
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-xs font-mono text-emerald-400">
+                <ShieldCheck className="w-4 h-4" />
+                <span>TOTAL KEKAYAAN BERSIH (NET WORTH)</span>
+                <PrivacyToggle size="sm" />
+              </div>
+              <TabularCurrency
+                cents={totalNetWorthCents}
+                size="2xl"
+                color="income"
+                isMasked={isBalanceHidden}
+              />
+              <p className="text-xs text-slate-400">
+                Konsolidasi saldo berjalan {accountList.length} rekening bank, e-wallet, dan aset investasi.
+              </p>
             </div>
-            <TabularCurrency
-              cents={totalNetWorthCents}
-              size="2xl"
-              color="income"
-              isMasked={isBalanceHidden}
-            />
-            <p className="text-xs text-slate-400">
-              Konsolidasi saldo berjalan 16 rekening bank, e-wallet, dan aset investasi.
-            </p>
+
+            <div className="flex items-center gap-3">
+              <Link href="/import">
+                <Button size="sm" className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs">
+                  + Tambah Mutasi
+                </Button>
+              </Link>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <Link href="/import">
-              <Button size="sm" className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs">
-                + Tambah Mutasi
-              </Button>
-            </Link>
+          {/* 3-Tier Metric Sub-Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-white/[0.08]">
+            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-mono text-slate-400 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  TOTAL ASET BRUTO (SALDO POSITIF)
+                </div>
+                <div className="text-[10px] text-slate-500 mt-0.5">
+                  Rekening, kas, dan investasi dengan saldo di atas nol
+                </div>
+              </div>
+              <TabularCurrency
+                cents={totalPositiveAssetsCents}
+                size="md"
+                color="income"
+                isMasked={isBalanceHidden}
+              />
+            </div>
+
+            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-mono text-slate-400 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-rose-400" />
+                  TOTAL LIABILITAS / SALDO MINUS
+                </div>
+                <div className="text-[10px] text-slate-500 mt-0.5">
+                  Akun penampung dengan saldo defisit
+                </div>
+              </div>
+              <TabularCurrency
+                cents={totalLiabilitiesCents ? -totalLiabilitiesCents : 0}
+                size="md"
+                color={totalLiabilitiesCents ? "expense" : "muted"}
+                isMasked={isBalanceHidden}
+              />
+            </div>
           </div>
         </div>
       </Card>
@@ -119,6 +171,11 @@ export function AccountsClient({ initialAccounts }: AccountsClientProps) {
               <div className="flex items-center justify-between">
                 <EmvChipSvg />
                 <div className="flex items-center gap-1.5">
+                  {acc.currentBalance < 0 && (
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                      Minus
+                    </span>
+                  )}
                   <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/10 text-white border border-white/10">
                     {acc.type}
                   </span>
@@ -144,6 +201,7 @@ export function AccountsClient({ initialAccounts }: AccountsClientProps) {
                 <TabularCurrency
                   cents={acc.currentBalance}
                   size="sm"
+                  color={acc.currentBalance < 0 ? "expense" : "default"}
                   isMasked={isBalanceHidden}
                 />
               </div>

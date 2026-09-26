@@ -9,11 +9,15 @@ import { usePrivacyStore } from "@/store/use-privacy-store";
 
 export interface NetWorthHeroProps {
   totalNetWorthCents: number;
+  totalPositiveAssetsCents?: number;
+  totalLiabilitiesCents?: number;
   accountCount: number;
 }
 
 export function NetWorthHero({
   totalNetWorthCents,
+  totalPositiveAssetsCents,
+  totalLiabilitiesCents,
   accountCount,
 }: NetWorthHeroProps) {
   const isBalanceHidden = usePrivacyStore((s) => s.isBalanceHidden);
@@ -38,6 +42,34 @@ export function NetWorthHero({
         <p className="text-xs text-slate-400 mt-2 font-sans">
           Konsolidasi saldo berjalan perbankan, dompet digital, dan portofolio investasi.
         </p>
+
+        {/* 3-Tier Breakdown: Aset Bruto & Liabilitas */}
+        <div className="grid grid-cols-2 gap-2 pt-3 mt-3 border-t border-white/[0.08]">
+          <div className="bg-white/[0.02] rounded-lg p-2.5 border border-white/[0.04]">
+            <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5 mb-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              TOTAL ASET
+            </div>
+            <TabularCurrency
+              cents={totalPositiveAssetsCents ?? totalNetWorthCents}
+              size="sm"
+              color="income"
+              isMasked={isBalanceHidden}
+            />
+          </div>
+          <div className="bg-white/[0.02] rounded-lg p-2.5 border border-white/[0.04]">
+            <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5 mb-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+              LIABILITAS (MINUS)
+            </div>
+            <TabularCurrency
+              cents={totalLiabilitiesCents ? -totalLiabilitiesCents : 0}
+              size="sm"
+              color={totalLiabilitiesCents ? "expense" : "muted"}
+              isMasked={isBalanceHidden}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="pt-4 border-t border-white/[0.08] flex items-center justify-between text-xs font-mono text-slate-400">

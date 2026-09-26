@@ -48,7 +48,15 @@ export default async function HomePage() {
       .limit(6),
   ]);
 
-  const totalNetWorthCents = allAccounts.reduce((sum, a) => sum + a.currentBalance, 0);
+  const totalPositiveAssetsCents = allAccounts
+    .filter((a) => a.currentBalance > 0)
+    .reduce((sum, a) => sum + a.currentBalance, 0);
+
+  const totalLiabilitiesCents = allAccounts
+    .filter((a) => a.currentBalance < 0)
+    .reduce((sum, a) => sum + Math.abs(a.currentBalance), 0);
+
+  const totalNetWorthCents = totalPositiveAssetsCents - totalLiabilitiesCents;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
@@ -82,6 +90,8 @@ export default async function HomePage() {
         {/* Left Hero Card: Total Net Worth */}
         <NetWorthHero
           totalNetWorthCents={totalNetWorthCents}
+          totalPositiveAssetsCents={totalPositiveAssetsCents}
+          totalLiabilitiesCents={totalLiabilitiesCents}
           accountCount={allAccounts.length}
         />
 
