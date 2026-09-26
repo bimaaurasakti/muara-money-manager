@@ -3,7 +3,7 @@
 import { db } from "@/db";
 import { accounts, importBatches, transactions } from "@/db/schema";
 import { decryptAndParseMandiriExcel } from "@/lib/parser/excel-decryptor";
-import { preprocessBluCsv } from "@/lib/parser/file-preprocessor";
+import { parseBluCsv, preprocessBluCsv } from "@/lib/parser/file-preprocessor";
 import { extractTransactionsWithGemini, ExtractedTransaction } from "@/lib/gemini/extractor";
 import {
   detectIntraBatchContraTransfers,
@@ -93,37 +93,51 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
         targetWalletName: null,
       }));
     } else if (fileExtension === "csv") {
-      // Blu BCA CSV or generic CSV
+      // Blu BCA CSV or generic CSV (Hybrid Deterministic + Graceful AI Enrichment)
       detectedSource = "CSV_BLU";
       const csvText = buffer.toString("utf-8");
-      const { cleanCsv, accountNumber, accountHolder } = preprocessBluCsv(csvText);
 
-      if (!selectedWalletName) {
-        const matched = allAccounts.find((a) => a.accountNumber === accountNumber);
-        detectedAccount = matched ? matched.name : "Blu BCA (Baim)";
+      // 1. Deterministic Local Parsing (100% exact amounts, dates, and account info)
+      const parsedCsv = parseBluCsv(csvText, selectedWalletName, knownAccounts);
+      detectedAccount = parsedCsv.detectedAccountName;
+      extractedList = parsedCsv.transactions;
+
+      // 2. Graceful AI Enrichment: Enhance transfer targets using Gemini if available
+      if (process.env.GEMINI_API_KEY && extractedList.length > 0) {
+        try {
+          const geminiResult = await extractTransactionsWithGemini({
+            contents: [
+              {
+                text: `CSV STATEMENT CONTENT:\n${parsedCsv.cleanCsv}\nDetected Account Holder: ${parsedCsv.accountHolder}, Account No: ${parsedCsv.accountNumber}`,
+              },
+            ],
+            selectedWalletName: detectedAccount,
+            knownAccounts,
+          });
+
+          if (geminiResult && Array.isArray(geminiResult.transactions)) {
+            for (const aiTx of geminiResult.transactions) {
+              if (aiTx.type === "TRANSFER" && aiTx.targetWalletName) {
+                const match = extractedList.find(
+                  (lt) =>
+                    lt.date === aiTx.date &&
+                    lt.amountCents === aiTx.amountCents &&
+                    !lt.targetWalletName
+                );
+                if (match) {
+                  match.type = "TRANSFER";
+                  match.targetWalletName = aiTx.targetWalletName;
+                }
+              }
+            }
+          }
+        } catch (aiError) {
+          console.warn(
+            "[IngestAction] Graceful degradation: Gemini enrichment failed, using deterministic CSV data.",
+            aiError
+          );
+        }
       }
-
-      const geminiResult = await extractTransactionsWithGemini({
-        contents: [
-          {
-            text: `CSV STATEMENT CONTENT:\n${cleanCsv}\nDetected Account Holder: ${accountHolder}, Account No: ${accountNumber}`,
-          },
-        ],
-        selectedWalletName: detectedAccount,
-        knownAccounts,
-      });
-
-      detectedAccount = geminiResult.detectedAccountName;
-      extractedList = geminiResult.transactions.map((t, idx) => ({
-        id: `csv-${Date.now()}-${idx}`,
-        sourceWalletName: t.sourceWalletName,
-        amountCents: t.amountCents,
-        type: t.type,
-        date: t.date,
-        time: t.time,
-        description: t.description,
-        targetWalletName: t.targetWalletName,
-      }));
     } else if (fileExtension === "pdf") {
       // BCA / DANA PDF Statement
       detectedSource = fileName.toLowerCase().includes("dana") ? "PDF_DANA" : "PDF_BCA";

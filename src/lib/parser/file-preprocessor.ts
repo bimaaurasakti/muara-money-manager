@@ -3,6 +3,9 @@
  * Normalizes multi-format banking statements and receipts before AI extraction.
  */
 
+import { CandidateTransaction } from "../reconciliation/transfer-detector";
+import { toCents } from "../money";
+
 export interface PreprocessedDocument {
   fileType: "PDF" | "IMAGE" | "CSV" | "EXCEL_MANDIRI";
   mimeType: string;
@@ -61,6 +64,136 @@ export function preprocessBluCsv(csvContent: string): {
     accountHolder,
   };
 }
+
+export interface ParsedBluCsvResult {
+  cleanCsv: string;
+  accountNumber: string;
+  accountHolder: string;
+  detectedAccountName: string;
+  transactions: CandidateTransaction[];
+}
+
+/**
+ * Deterministically parses Blu BCA CSV statement into structured transactions with 100% precision.
+ */
+export function parseBluCsv(
+  csvContent: string,
+  selectedWalletName?: string,
+  knownAccounts: { name: string; accountNumber?: string | null }[] = []
+): ParsedBluCsvResult {
+  if (!csvContent || !csvContent.trim()) {
+    return {
+      cleanCsv: "",
+      accountNumber: "",
+      accountHolder: "",
+      detectedAccountName: selectedWalletName || "Blu BCA (Baim)",
+      transactions: [],
+    };
+  }
+
+  const { cleanCsv, accountNumber, accountHolder } = preprocessBluCsv(csvContent);
+
+  let detectedAccountName = selectedWalletName;
+  if (!detectedAccountName) {
+    const matched = knownAccounts.find((a) => a.accountNumber && accountNumber.includes(a.accountNumber));
+    detectedAccountName = matched ? matched.name : "Blu BCA (Baim)";
+  }
+
+  const contentLines = cleanCsv.split("\n");
+  if (contentLines.length <= 1) {
+    return {
+      cleanCsv,
+      accountNumber,
+      accountHolder,
+      detectedAccountName,
+      transactions: [],
+    };
+  }
+
+  const transactions: CandidateTransaction[] = [];
+
+  for (let i = 1; i < contentLines.length; i++) {
+    const line = contentLines[i].trim();
+    if (!line) continue;
+
+    const cols = splitCsvLine(line);
+    if (cols.length < 4) continue;
+
+    const rawDate = cols[0]?.trim(); // DD/MM/YYYY
+    const rawRemarks = cols[1]?.trim() || "Transaksi Tanpa Keterangan";
+    const rawNominal = cols[2]?.trim() || "0";
+    const rawType = cols[3]?.trim()?.toLowerCase() || "";
+
+    // Convert date DD/MM/YYYY to YYYY-MM-DD
+    const dateMatch = rawDate.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    let date = rawDate;
+    if (dateMatch) {
+      const [, dd, mm, yyyy] = dateMatch;
+      date = `${yyyy}-${mm}-${dd}`;
+    }
+
+    // Parse amount
+    const parsedNumber = parseFloat(rawNominal.replace(/,/g, ""));
+    const absNominal = isNaN(parsedNumber) ? 0 : Math.abs(parsedNumber);
+    const amountCents = toCents(absNominal);
+
+    // Determine default type
+    let type: "EXPENSE" | "INCOME" | "TRANSFER" = "EXPENSE";
+    if (rawType.includes("pemasukan") || parsedNumber > 0) {
+      type = "INCOME";
+    } else if (rawType.includes("pengeluaran") || parsedNumber < 0) {
+      type = "EXPENSE";
+    }
+
+    transactions.push({
+      id: `blu-csv-${Date.now()}-${i}`,
+      sourceWalletName: detectedAccountName,
+      amountCents,
+      type,
+      date,
+      time: null,
+      description: rawRemarks,
+      targetWalletName: null,
+    });
+  }
+
+  return {
+    cleanCsv,
+    accountNumber,
+    accountHolder,
+    detectedAccountName,
+    transactions,
+  };
+}
+
+/**
+ * Standard CSV line splitter handling quoted strings.
+ */
+function splitCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === "," && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
 
 /**
  * Deduplicates DANA e-wallet transactions where split breakdown rows
