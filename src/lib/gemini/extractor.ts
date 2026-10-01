@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { buildIngestionSystemPrompt } from "./prompts";
+import { buildIngestionSystemPrompt, ExistingReferenceTransaction } from "./prompts";
 import { deduplicateDanaTransactions } from "../parser/file-preprocessor";
 import { toCents } from "../money";
 
@@ -16,6 +16,9 @@ export interface ExtractedTransaction {
   sourceWalletName: string;
   targetWalletName: string | null;
   confidence: number;
+  isDuplicate?: boolean;
+  duplicateReason?: string | null;
+  matchedExistingTxId?: string | null;
 }
 
 export interface ExtractionResult {
@@ -24,7 +27,7 @@ export interface ExtractionResult {
   transactions: ExtractedTransaction[];
 }
 
-const transactionSchema = {
+export const transactionSchema = {
   type: Type.OBJECT,
   properties: {
     detectedAccountName: {
@@ -60,6 +63,18 @@ const transactionSchema = {
             type: Type.INTEGER,
             description: "Extraction confidence score between 0 and 100.",
           },
+          isDuplicate: {
+            type: Type.BOOLEAN,
+            description: "True if this transaction matches an existing transaction from the database reference history.",
+          },
+          duplicateReason: {
+            type: Type.STRING,
+            description: "Reason or explanation why this transaction is considered a duplicate.",
+          },
+          matchedExistingTxId: {
+            type: Type.STRING,
+            description: "ID of the matched existing database transaction.",
+          },
         },
         required: ["date", "description", "amount", "type", "category"],
       },
@@ -75,6 +90,7 @@ export async function extractTransactionsWithGemini(params: {
   contents: any[]; // inlineData parts or text strings
   selectedWalletName?: string;
   knownAccounts?: { name: string; accountNumber?: string | null }[];
+  existingTransactions?: ExistingReferenceTransaction[];
 }): Promise<ExtractionResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -97,7 +113,8 @@ export async function extractTransactionsWithGemini(params: {
 
   const systemPrompt = buildIngestionSystemPrompt(
     params.selectedWalletName,
-    params.knownAccounts
+    params.knownAccounts,
+    params.existingTransactions
   );
 
   let lastError: any = null;
@@ -155,6 +172,9 @@ export async function extractTransactionsWithGemini(params: {
             sourceWalletName: detectedAccountName,
             targetWalletName: t.targetWalletName || null,
             confidence: typeof t.confidence === "number" ? t.confidence : 95,
+            isDuplicate: Boolean(t.isDuplicate),
+            duplicateReason: t.duplicateReason || null,
+            matchedExistingTxId: t.matchedExistingTxId || null,
           };
         });
 

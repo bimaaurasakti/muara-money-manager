@@ -219,6 +219,14 @@ export function markDuplicateCandidates(
       };
     }
 
+    if (candidate.isDuplicate) {
+      return {
+        ...candidate,
+        isDuplicate: true,
+        duplicateReason: candidate.duplicateReason || "Duplikat semantik terdeteksi oleh AI.",
+      };
+    }
+
     return {
       ...candidate,
       isDuplicate: false,

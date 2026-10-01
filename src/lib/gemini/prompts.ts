@@ -3,13 +3,42 @@
  * Injects user-selected wallet and banking account heuristics.
  */
 
+export interface ExistingReferenceTransaction {
+  id: string;
+  date: string;
+  time?: string | null;
+  amount: number;
+  type: string;
+  description: string;
+}
+
 export function buildIngestionSystemPrompt(
   selectedWalletName?: string,
-  knownAccounts: { name: string; accountNumber?: string | null }[] = []
+  knownAccounts: { name: string; accountNumber?: string | null }[] = [],
+  existingTransactions: ExistingReferenceTransaction[] = []
 ): string {
   const accountListStr = knownAccounts
     .map((a) => `- ${a.name}${a.accountNumber ? ` (Account No: ${a.accountNumber})` : ""}`)
     .join("\n");
+
+  const duplicateSection =
+    existingTransactions.length > 0
+      ? `\n\nPRIOR DATABASE TRANSACTIONS FOR THIS ACCOUNT & DATE RANGE (DUPLICATE REFERENCE):
+${existingTransactions
+  .map(
+    (t) =>
+      `- [ID: ${t.id}] ${t.date}${t.time ? ` ${t.time}` : ""} | ${t.type} | IDR ${t.amount} | "${t.description}"`
+  )
+  .join("\n")}
+
+DUPLICATE DETECTION RULES:
+Compare extracted statement items against the PRIOR DATABASE TRANSACTIONS above.
+1. When a transaction has matching date, matching flow direction (EXPENSE vs INCOME), matching amount (Rp), and corresponding merchant/narration semantics, flag "isDuplicate": true, provide "duplicateReason" (e.g. "Sama dengan transaksi ID ..."), and "matchedExistingTxId".
+2. Handle variations in bank description formats intelligently (e.g., QRIS vs POS, truncated text, reference codes, spelling shifts).
+3. Do NOT falsely mark separate multiple purchases on the same day as duplicate unless there are matching multiple entries in the prior database transactions.
+4. If a transaction does NOT match any prior database transaction, set "isDuplicate": false, "duplicateReason": null, and "matchedExistingTxId": null.`
+      : `\n\nDUPLICATE DETECTION RULES:
+No prior database transactions provided for reference. Set "isDuplicate": false, "duplicateReason": null, and "matchedExistingTxId": null for all extracted items.`;
 
   return `You are an elite institutional financial accounting engine and forensic bank statement parser for Muara Money Manager.
 Your job is to analyze the provided financial statement document (PDF, CSV, image receipt, or tabular text) and extract every financial transaction with 100% precision.
@@ -40,6 +69,7 @@ ${accountListStr || `
 - Silver
 - Reksadana Sailendra
 `}
+${duplicateSection}
 
 EXTRACTION RULES:
 1. TRANSACTION TYPES:
