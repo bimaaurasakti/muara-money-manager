@@ -4,7 +4,6 @@ import { db } from "@/db";
 import { accounts, categories, subcategories, transactions, importBatches } from "@/db/schema";
 import { parseMoneyManagerExcel } from "@/lib/migration/money-manager-importer";
 import { eq, sql } from "drizzle-orm";
-import path from "path";
 
 export interface MigrationActionResult {
   success: boolean;
@@ -50,19 +49,16 @@ export async function previewMoneyManagerFileAction(
 ): Promise<MigrationPreviewResult> {
   try {
     const file = formData.get("file") as File | null;
-    let buffer: Buffer;
-    let fileName = "Money Manager - Excel.xlsx";
-
-    if (file && file.size > 0) {
-      fileName = file.name;
-      const arrayBuffer = await file.arrayBuffer();
-      buffer = Buffer.from(arrayBuffer);
-    } else {
-      const filePath = path.resolve(process.cwd(), "data-example/Money Manager - Excel.xlsx");
-      const fs = await import("fs");
-      buffer = fs.readFileSync(filePath);
+    if (!file || file.size === 0) {
+      return {
+        success: false,
+        message: "File Excel Money Manager wajib diunggah.",
+      };
     }
 
+    const fileName = file.name;
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
     const parseResult = await parseMoneyManagerExcel(buffer);
 
     return {
@@ -97,18 +93,18 @@ export async function runLegacyMigrationAction(
   formData?: FormData
 ): Promise<MigrationActionResult> {
   try {
-    let parseResult;
-    let fileName = "Money Manager - Excel.xlsx";
     const file = formData?.get("file") as File | null;
-
-    if (file && file.size > 0) {
-      fileName = file.name;
-      const arrayBuffer = await file.arrayBuffer();
-      parseResult = await parseMoneyManagerExcel(Buffer.from(arrayBuffer));
-    } else {
-      const filePath = path.resolve(process.cwd(), "data-example/Money Manager - Excel.xlsx");
-      parseResult = await parseMoneyManagerExcel(filePath);
+    if (!file || file.size === 0) {
+      return {
+        success: false,
+        message: "File Excel Money Manager wajib diunggah.",
+        totalMigrated: 0,
+      };
     }
+
+    const fileName = file.name;
+    const arrayBuffer = await file.arrayBuffer();
+    const parseResult = await parseMoneyManagerExcel(Buffer.from(arrayBuffer));
 
     // 0. Idempotency Gate: Prevent duplicate execution if Money Manager data is already committed
     const existingMigrationBatch = await db

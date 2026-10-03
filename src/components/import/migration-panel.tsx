@@ -8,14 +8,13 @@ import {
   UploadCloud,
   CheckCircle2,
   AlertCircle,
-  Sparkles,
   ArrowRight,
-  RefreshCw,
   FolderSync,
   Layers,
   TrendingDown,
   TrendingUp,
   ArrowLeftRight,
+  Loader2,
 } from "lucide-react";
 import {
   previewMoneyManagerFileAction,
@@ -56,36 +55,18 @@ export function MigrationPanel() {
     }
   };
 
-  const handleUseSample = async () => {
-    setFile(null);
-    setErrorMessage(null);
-    setMigrationResult(null);
-    setIsPreviewing(true);
-
-    try {
-      const formData = new FormData(); // empty formData triggers sample file
-      const res = await previewMoneyManagerFileAction(formData);
-      if (res.success) {
-        setPreviewResult(res);
-      } else {
-        setErrorMessage(res.message);
-      }
-    } catch (err: any) {
-      setErrorMessage(err?.message || "Gagal memproses file sampel Money Manager.");
-    } finally {
-      setIsPreviewing(false);
-    }
-  };
-
   const handleExecuteMigration = async () => {
+    if (!file) {
+      setErrorMessage("Silakan pilih file Excel Money Manager terlebih dahulu.");
+      return;
+    }
+
     setIsMigrating(true);
     setErrorMessage(null);
 
     try {
       const formData = new FormData();
-      if (file) {
-        formData.append("file", file);
-      }
+      formData.append("file", file);
       const res = await runLegacyMigrationAction(formData);
       if (res.success) {
         setMigrationResult(res);
@@ -119,71 +100,58 @@ export function MigrationPanel() {
         </div>
       </Card>
 
-      {/* Upload or Sample Selector */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Upload Custom MM File */}
-        <Card className="p-6 border-white/10 bg-slate-900/60 flex flex-col justify-between">
-          <div className="space-y-2">
+      {/* Upload MM File Card */}
+      <Card className="p-6 border-white/10 bg-slate-900/60">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
+          <div className="space-y-1.5">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
               <UploadCloud className="w-4 h-4 text-emerald-400" />
               <span>Unggah File Excel Money Manager</span>
             </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Format .xlsx atau .xls dari ekspor aplikasi Money Manager.
+            <p className="text-xs text-slate-400 leading-relaxed max-w-xl">
+              Format <code>.xlsx</code> atau <code>.xls</code> hasil ekspor/backup aplikasi Money Manager. Seluruh baris transaksi akan dianalisis dan dipetakan ke 16 rekening &amp; dompet buku besar Anda.
             </p>
           </div>
 
-          <div className="mt-4 pt-4 border-t border-white/[0.08] flex items-center gap-3">
-            <label className="cursor-pointer">
+          <div className="flex items-center gap-3 shrink-0">
+            <label className={`cursor-pointer ${isPreviewing || isMigrating ? "opacity-60 pointer-events-none" : ""}`}>
               <input
                 type="file"
                 accept=".xlsx,.xls"
                 className="hidden"
+                disabled={isPreviewing || isMigrating}
                 onChange={(e) => {
                   if (e.target.files && e.target.files[0]) {
                     handleFileChange(e.target.files[0]);
                   }
                 }}
               />
-              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 transition-colors">
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>Pilih File .xlsx</span>
+              <span className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 transition-colors shadow-sm">
+                {isPreviewing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                ) : (
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {isPreviewing
+                    ? "Menganalisis File..."
+                    : file
+                    ? "Ganti File .xlsx"
+                    : "Pilih File .xlsx"}
+                </span>
               </span>
             </label>
             {file && (
-              <span className="text-xs font-mono text-slate-300 truncate max-w-[200px]">
-                {file.name}
-              </span>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-950/80 border border-white/10 text-xs font-mono text-slate-300">
+                <span className="truncate max-w-[180px] sm:max-w-[240px]">{file.name}</span>
+                <span className="text-[10px] text-slate-500 shrink-0">
+                  ({(file.size / 1024).toFixed(1)} KB)
+                </span>
+              </div>
             )}
           </div>
-        </Card>
-
-        {/* Use Built-in Sample File */}
-        <Card className="p-6 border-white/10 bg-slate-900/60 flex flex-col justify-between">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>Gunakan Data Historis Bawaan</span>
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Muat data historis 455 transaksi dari <code>data-example/Money Manager - Excel.xlsx</code> yang sudah terverifikasi.
-            </p>
-          </div>
-
-          <div className="mt-4 pt-4 border-t border-white/[0.08]">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleUseSample}
-              disabled={isPreviewing || isMigrating}
-              className="text-xs border-amber-500/30 text-amber-300 hover:bg-amber-500/10"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isPreviewing ? "animate-spin" : ""}`} />
-              <span>Muat Data Sampel (455 Baris)</span>
-            </Button>
-          </div>
-        </Card>
-      </div>
+        </div>
+      </Card>
 
       {/* Error Message */}
       {errorMessage && (

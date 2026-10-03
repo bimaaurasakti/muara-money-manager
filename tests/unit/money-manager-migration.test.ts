@@ -58,9 +58,24 @@ describe("Legacy Money Manager Migration Parser", () => {
     }
   });
 
-  it("enforces idempotency and rejects duplicate migration execution", async () => {
+  it("rejects migration execution when file is not provided", async () => {
     const { runLegacyMigrationAction } = await import("@/actions/migration-action");
     const result = await runLegacyMigrationAction();
+
+    expect(result.success).toBe(false);
+    expect(result.totalMigrated).toBe(0);
+    expect(result.message).toContain("File Excel Money Manager wajib diunggah");
+  });
+
+  it("enforces idempotency and rejects duplicate migration execution when file is provided", async () => {
+    const { runLegacyMigrationAction } = await import("@/actions/migration-action");
+    const fs = await import("fs");
+    const buffer = fs.readFileSync(sampleFilePath);
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const formData = new FormData();
+    formData.append("file", blob, "Money Manager - Excel.xlsx");
+
+    const result = await runLegacyMigrationAction(formData);
 
     expect(result.success).toBe(false);
     expect(result.totalMigrated).toBe(0);
