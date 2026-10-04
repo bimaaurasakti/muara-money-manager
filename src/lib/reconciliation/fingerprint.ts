@@ -102,7 +102,9 @@ export function buildTransactionFingerprint(params: TransactionFingerprintParams
 }
 
 export interface ExistingDbTransaction {
+  id?: string;
   accountId: string;
+  targetAccountId?: string | null;
   date: string;
   amount: number;
   type: string;
@@ -133,15 +135,21 @@ function computeDescriptionSimilarity(a: string, b: string): number {
 }
 
 /**
- * Frequency-aware 2-tier duplicate marker:
+ * Frequency-aware 3-tier duplicate marker:
  * Tier 1: Exact composite fingerprint match.
  * Tier 2: Core similarity fallback (Account + Date + Amount + Direction with >= 60% token overlap).
+ * Tier 3: Inter-Wallet Transfer Match (Contra-Leg Match against existing DB transfers).
  */
 export function markDuplicateCandidates(
   candidates: CandidateTransaction[],
   existingTxs: ExistingDbTransaction[],
   walletNameToIdMap: Map<string, string>
 ): CandidateTransaction[] {
+  const idToWalletNameMap = new Map<string, string>();
+  for (const [name, id] of walletNameToIdMap.entries()) {
+    idToWalletNameMap.set(id, name);
+  }
+
   // Pool of available existing DB transactions for matching
   const availableDbTxs: (ExistingDbTransaction & {
     key: string;
@@ -216,6 +224,48 @@ export function markDuplicateCandidates(
         ...candidate,
         isDuplicate: true,
         duplicateReason: "Mutasi identik sudah tercatat di buku besar database (Smart Core Similarity Match).",
+      };
+    }
+
+    // Tier 3: Inter-Wallet Transfer Match (Contra-Leg Match against DB)
+    // Matches incoming/outgoing mutation to an existing inter-wallet transfer in DB
+    const transferMatch = availableDbTxs.find((d) => {
+      if (d.matched) return false;
+      if (d.type !== "TRANSFER") return false;
+      if (d.date !== candidate.date) return false;
+      if (d.amount !== candidate.amountCents) return false;
+
+      // Case 3A: Candidate is incoming (INCOME / INFLOW) and DB transaction has targetAccountId = this account
+      if (candDirection === "INFLOW" && d.targetAccountId === accountId) {
+        return true;
+      }
+
+      // Case 3B: Candidate is outgoing (EXPENSE / OUTFLOW) and DB transaction has accountId = this account
+      if (candDirection === "OUTFLOW" && d.accountId === accountId) {
+        return true;
+      }
+
+      return false;
+    });
+
+    if (transferMatch) {
+      transferMatch.matched = true;
+      const sourceName =
+        (transferMatch.accountId && idToWalletNameMap.get(transferMatch.accountId)) ||
+        "dompet asal";
+      const targetName =
+        (transferMatch.targetAccountId && idToWalletNameMap.get(transferMatch.targetAccountId)) ||
+        candidate.sourceWalletName;
+
+      return {
+        ...candidate,
+        type: "TRANSFER",
+        transferPairId: transferMatch.id,
+        targetWalletName: candDirection === "INFLOW" ? candidate.sourceWalletName : targetName,
+        isDuplicate: true,
+        duplicateReason: `Mutasi transfer ${
+          candDirection === "INFLOW" ? "masuk" : "keluar"
+        } telah tercatat di buku besar database sebagai transfer (${sourceName} -> ${targetName}).`,
       };
     }
 

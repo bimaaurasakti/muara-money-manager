@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { accounts, categories, transactions, importBatches } from "@/db/schema";
 import { CandidateTransaction } from "@/lib/reconciliation/transfer-detector";
 import { markDuplicateCandidates, sanitizeTimeString } from "@/lib/reconciliation/fingerprint";
-import { and, eq, gte, lte, inArray, sql } from "drizzle-orm";
+import { and, or, eq, gte, lte, inArray, sql } from "drizzle-orm";
 
 export interface CommitBatchResult {
   success: boolean;
@@ -59,7 +59,9 @@ export async function commitBatchAction(
       if (involvedAccountIds.length > 0) {
         const existingTxs = await db
           .select({
+            id: transactions.id,
             accountId: transactions.accountId,
+            targetAccountId: transactions.targetAccountId,
             date: transactions.date,
             time: transactions.time,
             amount: transactions.amount,
@@ -69,7 +71,10 @@ export async function commitBatchAction(
           .from(transactions)
           .where(
             and(
-              inArray(transactions.accountId, involvedAccountIds),
+              or(
+                inArray(transactions.accountId, involvedAccountIds),
+                inArray(transactions.targetAccountId, involvedAccountIds)
+              ),
               gte(transactions.date, minDate),
               lte(transactions.date, maxDate)
             )

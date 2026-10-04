@@ -11,7 +11,7 @@ import {
 } from "@/lib/reconciliation/transfer-detector";
 import { markDuplicateCandidates } from "@/lib/reconciliation/fingerprint";
 import { toCents, fromCents } from "@/lib/money";
-import { and, eq, gte, lte, inArray } from "drizzle-orm";
+import { and, or, eq, gte, lte, inArray } from "drizzle-orm";
 
 export interface IngestActionResult {
   success: boolean;
@@ -113,9 +113,16 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
       );
 
       if (detectedAccRecord && csvMinDate && csvMaxDate) {
+        const idToAccName = new Map<string, string>();
+        for (const a of allAccounts) {
+          idToAccName.set(a.id, a.name);
+        }
+
         const dbTxs = await db
           .select({
             id: transactions.id,
+            accountId: transactions.accountId,
+            targetAccountId: transactions.targetAccountId,
             date: transactions.date,
             time: transactions.time,
             amount: transactions.amount,
@@ -125,7 +132,10 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
           .from(transactions)
           .where(
             and(
-              eq(transactions.accountId, detectedAccRecord.id),
+              or(
+                eq(transactions.accountId, detectedAccRecord.id),
+                eq(transactions.targetAccountId, detectedAccRecord.id)
+              ),
               gte(transactions.date, csvMinDate),
               lte(transactions.date, csvMaxDate)
             )
@@ -138,6 +148,8 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
           amount: fromCents(t.amount),
           type: t.type,
           description: t.description,
+          sourceWalletName: idToAccName.get(t.accountId),
+          targetWalletName: t.targetAccountId ? idToAccName.get(t.targetAccountId) : null,
         }));
       }
 
@@ -184,11 +196,18 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
       detectedSource = fileName.toLowerCase().includes("dana") ? "PDF_DANA" : "PDF_BCA";
       const base64Data = buffer.toString("base64");
 
-      let existingRefTxs: { id: string; date: string; time?: string | null; amount: number; type: string; description: string }[] = [];
+      let existingRefTxs: { id: string; date: string; time?: string | null; amount: number; type: string; description: string; sourceWalletName?: string; targetWalletName?: string | null }[] = [];
       if (selectedAccountId && selectedAccountId !== "AUTO") {
+        const idToAccName = new Map<string, string>();
+        for (const a of allAccounts) {
+          idToAccName.set(a.id, a.name);
+        }
+
         const dbTxs = await db
           .select({
             id: transactions.id,
+            accountId: transactions.accountId,
+            targetAccountId: transactions.targetAccountId,
             date: transactions.date,
             time: transactions.time,
             amount: transactions.amount,
@@ -196,7 +215,12 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
             description: transactions.description,
           })
           .from(transactions)
-          .where(eq(transactions.accountId, selectedAccountId))
+          .where(
+            or(
+              eq(transactions.accountId, selectedAccountId),
+              eq(transactions.targetAccountId, selectedAccountId)
+            )
+          )
           .limit(100);
 
         existingRefTxs = dbTxs.map((t) => ({
@@ -206,6 +230,8 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
           amount: fromCents(t.amount),
           type: t.type,
           description: t.description,
+          sourceWalletName: idToAccName.get(t.accountId),
+          targetWalletName: t.targetAccountId ? idToAccName.get(t.targetAccountId) : null,
         }));
       }
 
@@ -242,11 +268,18 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
       const base64Data = buffer.toString("base64");
       const mimeType = fileExtension === "png" ? "image/png" : "image/jpeg";
 
-      let existingRefTxs: { id: string; date: string; time?: string | null; amount: number; type: string; description: string }[] = [];
+      let existingRefTxs: { id: string; date: string; time?: string | null; amount: number; type: string; description: string; sourceWalletName?: string; targetWalletName?: string | null }[] = [];
       if (selectedAccountId && selectedAccountId !== "AUTO") {
+        const idToAccName = new Map<string, string>();
+        for (const a of allAccounts) {
+          idToAccName.set(a.id, a.name);
+        }
+
         const dbTxs = await db
           .select({
             id: transactions.id,
+            accountId: transactions.accountId,
+            targetAccountId: transactions.targetAccountId,
             date: transactions.date,
             time: transactions.time,
             amount: transactions.amount,
@@ -254,7 +287,12 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
             description: transactions.description,
           })
           .from(transactions)
-          .where(eq(transactions.accountId, selectedAccountId))
+          .where(
+            or(
+              eq(transactions.accountId, selectedAccountId),
+              eq(transactions.targetAccountId, selectedAccountId)
+            )
+          )
           .limit(100);
 
         existingRefTxs = dbTxs.map((t) => ({
@@ -264,6 +302,8 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
           amount: fromCents(t.amount),
           type: t.type,
           description: t.description,
+          sourceWalletName: idToAccName.get(t.accountId),
+          targetWalletName: t.targetAccountId ? idToAccName.get(t.targetAccountId) : null,
         }));
       }
 
@@ -326,7 +366,9 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
       if (relevantAccountIds.length > 0) {
         const existingTxs = await db
           .select({
+            id: transactions.id,
             accountId: transactions.accountId,
+            targetAccountId: transactions.targetAccountId,
             date: transactions.date,
             time: transactions.time,
             amount: transactions.amount,
@@ -336,7 +378,10 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
           .from(transactions)
           .where(
             and(
-              inArray(transactions.accountId, relevantAccountIds),
+              or(
+                inArray(transactions.accountId, relevantAccountIds),
+                inArray(transactions.targetAccountId, relevantAccountIds)
+              ),
               gte(transactions.date, minDate),
               lte(transactions.date, maxDate)
             )

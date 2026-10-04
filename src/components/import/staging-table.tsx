@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Trash2, CheckCircle2, RotateCcw, Building2, HelpCircle } from "lucide-react";
+import { Trash2, CheckCircle2, RotateCcw, Building2, HelpCircle, ArrowDown, ArrowUp } from "lucide-react";
 
 export interface StagingTableProps {
   availableWallets?: string[];
@@ -50,6 +50,20 @@ export function StagingTable({
 
   const [bulkWallet, setBulkWallet] = React.useState<string>("");
   const [ambiguousRowId, setAmbiguousRowId] = React.useState<string | null>(null);
+  const [sortOrder, setSortOrder] = React.useState<"desc" | "asc">("desc");
+
+  const sortedTransactions = React.useMemo(() => {
+    return [...transactions].sort((a, b) => {
+      const dateA = a.date || "";
+      const dateB = b.date || "";
+      if (dateA !== dateB) {
+        return sortOrder === "desc" ? dateB.localeCompare(dateA) : dateA.localeCompare(dateB);
+      }
+      const timeA = a.time || "";
+      const timeB = b.time || "";
+      return sortOrder === "desc" ? timeB.localeCompare(timeA) : timeA.localeCompare(timeB);
+    });
+  }, [transactions, sortOrder]);
 
   const duplicateCount = React.useMemo(() => {
     return transactions.filter((t) => t.isDuplicate).length;
@@ -198,7 +212,7 @@ export function StagingTable({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10 text-center">
+              <TableHead className="w-10 px-3 py-2.5 text-center">
                 <input
                   type="checkbox"
                   checked={isAllSelected}
@@ -207,17 +221,31 @@ export function StagingTable({
                   title="Pilih seluruh transaksi baru"
                 />
               </TableHead>
-              <TableHead className="w-28">Tanggal</TableHead>
-              <TableHead className="w-36">Lokasi Wallet</TableHead>
-              <TableHead>Keterangan Mutasi</TableHead>
-              <TableHead className="w-32 text-right">Nominal</TableHead>
-              <TableHead className="w-24 text-center">Tipe</TableHead>
-              <TableHead className="w-48">Status Transfer</TableHead>
-              <TableHead className="w-12 text-center"></TableHead>
+              <TableHead className="w-32 px-3 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"))}
+                  className="inline-flex items-center gap-1.5 text-slate-300 hover:text-white font-mono text-xs font-semibold group cursor-pointer transition-colors"
+                  title={`Urutkan tanggal (${sortOrder === "desc" ? "Terbaru ➔ Terlama" : "Terlama ➔ Terbaru"})`}
+                >
+                  <span>Tanggal</span>
+                  {sortOrder === "desc" ? (
+                    <ArrowDown className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                  ) : (
+                    <ArrowUp className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                  )}
+                </button>
+              </TableHead>
+              <TableHead className="w-36 px-3 py-2.5">Lokasi Wallet</TableHead>
+              <TableHead className="px-3 py-2.5">Keterangan Mutasi</TableHead>
+              <TableHead className="w-32 px-3 py-2.5 text-right">Nominal</TableHead>
+              <TableHead className="w-24 px-3 py-2.5 text-center">Tipe</TableHead>
+              <TableHead className="w-56 px-3 py-2.5">Status Transfer</TableHead>
+              <TableHead className="w-10 px-3 py-2.5 text-center"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {transactions.map((tx) => {
+            {sortedTransactions.map((tx) => {
               const isSelected = selectedRowIds.includes(tx.id);
               return (
                 <TableRow
@@ -230,7 +258,7 @@ export function StagingTable({
                       : ""
                   }`}
                 >
-                  <TableCell className="text-center">
+                  <TableCell className="px-3 py-2.5 text-center">
                     <input
                       type="checkbox"
                       checked={isSelected}
@@ -239,19 +267,19 @@ export function StagingTable({
                     />
                   </TableCell>
 
-                  <TableCell className="font-mono text-xs text-slate-300">
+                  <TableCell className="px-3 py-2.5 font-mono text-xs text-slate-300 whitespace-nowrap">
                     <div>{tx.date}</div>
                     {tx.time && <div className="text-[10px] text-slate-500">{tx.time}</div>}
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell className="px-3 py-2.5 whitespace-nowrap">
                     <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/5 border border-white/10 text-xs font-mono text-slate-200">
                       <Building2 className="w-3 h-3 text-slate-400" />
                       <span>{tx.sourceWalletName}</span>
                     </div>
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell className="px-3 py-2.5">
                     <div className="space-y-1">
                       <div className="font-medium text-slate-200 text-xs sm:text-sm line-clamp-1">
                         {tx.description}
@@ -264,7 +292,7 @@ export function StagingTable({
                     </div>
                   </TableCell>
 
-                  <TableCell className="text-right">
+                  <TableCell className="px-3 py-2.5 text-right whitespace-nowrap">
                     <TabularCurrency
                       cents={tx.amountCents}
                       size="sm"
@@ -279,7 +307,7 @@ export function StagingTable({
                     />
                   </TableCell>
 
-                  <TableCell className="text-center">
+                  <TableCell className="px-3 py-2.5 text-center whitespace-nowrap">
                     <Badge
                       variant={
                         tx.type === "INCOME"
@@ -297,7 +325,7 @@ export function StagingTable({
                     </Badge>
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell className="px-3 py-2.5 whitespace-nowrap">
                     {tx.type === "TRANSFER" && tx.transferPairId && (
                       <ContraPairTether
                         pairId={tx.transferPairId}
@@ -315,7 +343,7 @@ export function StagingTable({
                     )}
                   </TableCell>
 
-                  <TableCell className="text-center">
+                  <TableCell className="px-3 py-2.5 text-center">
                     <button
                       type="button"
                       onClick={() => removeRow(tx.id)}

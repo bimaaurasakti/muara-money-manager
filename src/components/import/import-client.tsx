@@ -150,7 +150,7 @@ export function ImportClient({ accounts }: ImportClientProps) {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
+    <div className="max-w-[1600px] 2xl:max-w-[1700px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Header & Back Link */}
       <div className="flex items-center justify-between">
         <Link
