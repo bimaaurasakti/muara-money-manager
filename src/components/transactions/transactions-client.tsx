@@ -22,10 +22,17 @@ import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
 } from "lucide-react";
+import { PrivacyToggle } from "@/components/ui/privacy-toggle";
+import { usePrivacyStore } from "@/store/use-privacy-store";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 
 export interface TransactionRow {
   id: string;
+  inputOrder?: number;
   date: string;
   time: string | null;
   amount: number;
@@ -39,13 +46,113 @@ export interface TransactionRow {
   targetAccountId?: string | null;
   targetAccountName?: string | null;
   categoryName: string | null;
+  sourceBalance?: number;
+  targetBalance?: number | null;
+}
+
+export interface AccountMetadata {
+  id: string;
+  name: string;
+  initialBalance: number;
+  currentBalance?: number;
+}
+
+export type SortField = "date" | "row";
+export type SortDirection = "asc" | "desc";
+
+export interface SortConfig {
+  field: SortField;
+  direction: SortDirection;
+}
+
+export function parseSortParam(sortParam?: string | null): SortConfig {
+  if (sortParam === "row-asc") return { field: "row", direction: "asc" };
+  if (sortParam === "row-desc") return { field: "row", direction: "desc" };
+  if (sortParam === "date-asc" || sortParam === "asc") return { field: "date", direction: "asc" };
+  return { field: "date", direction: "desc" };
+}
+
+export function serializeSortParam(config: SortConfig): string | null {
+  if (config.field === "date" && config.direction === "desc") return null;
+  if (config.field === "date") return "date-asc";
+  if (config.field === "row") return config.direction === "asc" ? "row-asc" : "row-desc";
+  return null;
+}
+
+export function calculateRunningBalances(
+  transactions: TransactionRow[],
+  accountsMetadata?: AccountMetadata[]
+): Map<string, { sourceBalance: number; targetBalance: number | null }> {
+  const balanceTracker = new Map<string, number>();
+
+  if (accountsMetadata && accountsMetadata.length > 0) {
+    for (const acc of accountsMetadata) {
+      const initial = acc.initialBalance || 0;
+      balanceTracker.set(acc.id, initial);
+      balanceTracker.set(acc.name.toLowerCase(), initial);
+    }
+  }
+
+  const getBal = (id?: string | null, name?: string | null): number => {
+    if (id && balanceTracker.has(id)) return balanceTracker.get(id)!;
+    if (name && balanceTracker.has(name.toLowerCase())) return balanceTracker.get(name.toLowerCase())!;
+    return 0;
+  };
+
+  const setBal = (id: string | null | undefined, name: string | null | undefined, newBal: number) => {
+    if (id) balanceTracker.set(id, newBal);
+    if (name) balanceTracker.set(name.toLowerCase(), newBal);
+  };
+
+  const chronological = [...transactions].sort((a, b) => {
+    const dateComp = (a.date || "").localeCompare(b.date || "");
+    if (dateComp !== 0) return dateComp;
+    const timeComp = (a.time || "").localeCompare(b.time || "");
+    if (timeComp !== 0) return timeComp;
+    const orderA = a.inputOrder ?? 0;
+    const orderB = b.inputOrder ?? 0;
+    if (orderA !== orderB) return orderA - orderB;
+    return (a.id || "").localeCompare(b.id || "");
+  });
+
+  const resultMap = new Map<string, { sourceBalance: number; targetBalance: number | null }>();
+
+  for (const tx of chronological) {
+    const currentSourceBal = getBal(tx.accountId, tx.accountName);
+
+    if (tx.type === "INCOME") {
+      const newSourceBal = currentSourceBal + tx.amount;
+      setBal(tx.accountId, tx.accountName, newSourceBal);
+      resultMap.set(tx.id, { sourceBalance: newSourceBal, targetBalance: null });
+    } else if (tx.type === "EXPENSE") {
+      const newSourceBal = currentSourceBal - tx.amount;
+      setBal(tx.accountId, tx.accountName, newSourceBal);
+      resultMap.set(tx.id, { sourceBalance: newSourceBal, targetBalance: null });
+    } else if (tx.type === "TRANSFER") {
+      const newSourceBal = currentSourceBal - tx.amount;
+      setBal(tx.accountId, tx.accountName, newSourceBal);
+
+      let newTargetBal: number | null = null;
+      if (tx.targetAccountId || tx.targetAccountName) {
+        const currentTargetBal = getBal(tx.targetAccountId, tx.targetAccountName);
+        newTargetBal = currentTargetBal + tx.amount;
+        setBal(tx.targetAccountId, tx.targetAccountName, newTargetBal);
+      }
+
+      resultMap.set(tx.id, { sourceBalance: newSourceBal, targetBalance: newTargetBal });
+    }
+  }
+
+  return resultMap;
 }
 
 export interface TransactionsClientProps {
   initialTransactions: TransactionRow[];
-  accounts: string[];
+  accounts: string[] | AccountMetadata[];
+  accountsMetadata?: AccountMetadata[];
   availableMonths?: string[];
   initialWallet?: string;
+  initialSort?: string;
 }
 
 function formatMonthTitle(ym: string) {
@@ -59,14 +166,41 @@ function formatMonthTitle(ym: string) {
 export function TransactionsClient({
   initialTransactions,
   accounts,
+  accountsMetadata,
   availableMonths,
   initialWallet,
+  initialSort,
 }: TransactionsClientProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const isBalanceHidden = usePrivacyStore((s) => s.isBalanceHidden);
+
+  const accountNames = React.useMemo(() => {
+    return accounts.map((a) => (typeof a === "string" ? a : a.name));
+  }, [accounts]);
+
+  const effectiveAccountsMetadata = React.useMemo<AccountMetadata[]>(() => {
+    if (accountsMetadata && accountsMetadata.length > 0) return accountsMetadata;
+    return accounts
+      .filter((a): a is AccountMetadata => typeof a !== "string")
+      .map((a) => ({
+        id: a.id,
+        name: a.name,
+        initialBalance: a.initialBalance,
+        currentBalance: a.currentBalance,
+      }));
+  }, [accounts, accountsMetadata]);
+
+  const runningBalancesMap = React.useMemo(() => {
+    return calculateRunningBalances(initialTransactions, effectiveAccountsMetadata);
+  }, [initialTransactions, effectiveAccountsMetadata]);
+
   const matchedWallet = React.useMemo(() => {
     if (!initialWallet || initialWallet === "ALL") return "ALL";
-    const found = accounts.find((a) => a.toLowerCase() === initialWallet.toLowerCase());
+    const found = accountNames.find((a) => a.toLowerCase() === initialWallet.toLowerCase());
     return found || initialWallet;
-  }, [accounts, initialWallet]);
+  }, [accountNames, initialWallet]);
 
   const nowYM = React.useMemo(() => {
     const d = new Date();
@@ -79,13 +213,62 @@ export function TransactionsClient({
   const [selectedWallet, setSelectedWallet] = React.useState(matchedWallet);
   const [selectedType, setSelectedType] = React.useState("ALL");
   const [selectedMonth, setSelectedMonth] = React.useState(nowYM);
+  const [sortConfig, setSortConfig] = React.useState<SortConfig>(() =>
+    parseSortParam(initialSort)
+  );
 
   React.useEffect(() => {
     if (initialWallet) {
-      const found = accounts.find((a) => a.toLowerCase() === initialWallet.toLowerCase());
+      const found = accountNames.find((a) => a.toLowerCase() === initialWallet.toLowerCase());
       setSelectedWallet(found || initialWallet);
     }
-  }, [initialWallet, accounts]);
+  }, [initialWallet, accountNames]);
+
+  React.useEffect(() => {
+    if (initialSort) {
+      setSortConfig(parseSortParam(initialSort));
+    }
+  }, [initialSort]);
+
+  const updateSort = (newConfig: SortConfig) => {
+    setSortConfig(newConfig);
+    try {
+      const current = new URLSearchParams(Array.from(searchParams?.entries() || []));
+      const serialized = serializeSortParam(newConfig);
+      if (!serialized) {
+        current.delete("sort");
+      } else {
+        current.set("sort", serialized);
+      }
+      const search = current.toString();
+      const query = search ? `?${search}` : "";
+      router.replace(`${pathname}${query}`, { scroll: false });
+    } catch {
+      // Graceful fallback for non-browser or test runner environments
+    }
+  };
+
+  const handleSortDateToggle = () => {
+    if (sortConfig.field !== "date") {
+      updateSort({ field: "date", direction: "desc" });
+    } else {
+      updateSort({
+        field: "date",
+        direction: sortConfig.direction === "desc" ? "asc" : "desc",
+      });
+    }
+  };
+
+  const handleSortRowToggle = () => {
+    if (sortConfig.field !== "row") {
+      updateSort({ field: "row", direction: "asc" });
+    } else {
+      updateSort({
+        field: "row",
+        direction: sortConfig.direction === "asc" ? "desc" : "asc",
+      });
+    }
+  };
 
   const months = React.useMemo(() => {
     const base =
@@ -168,13 +351,61 @@ export function TransactionsClient({
     return matchesSearch && matchesWallet && matchesType && matchesMonth;
   });
 
+  const relativeRowNumberMap = React.useMemo(() => {
+    const inputOrdered = [...filtered].sort((a, b) => {
+      if (a.inputOrder !== undefined && b.inputOrder !== undefined) {
+        return a.inputOrder - b.inputOrder;
+      }
+      const dateComp = (a.date || "").localeCompare(b.date || "");
+      if (dateComp !== 0) return dateComp;
+      return (a.time || "").localeCompare(b.time || "");
+    });
+
+    const map = new Map<string, number>();
+    inputOrdered.forEach((t, idx) => {
+      map.set(t.id, idx + 1);
+    });
+    return map;
+  }, [filtered]);
+
+  const sortedTransactions = React.useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      if (sortConfig.field === "row") {
+        const numA = relativeRowNumberMap.get(a.id) ?? (a.inputOrder || 0);
+        const numB = relativeRowNumberMap.get(b.id) ?? (b.inputOrder || 0);
+        return sortConfig.direction === "asc" ? numA - numB : numB - numA;
+      }
+
+      const dateA = a.date || "";
+      const dateB = b.date || "";
+      if (dateA !== dateB) {
+        return sortConfig.direction === "desc"
+          ? dateB.localeCompare(dateA)
+          : dateA.localeCompare(dateB);
+      }
+      const timeA = a.time || "";
+      const timeB = b.time || "";
+      if (timeA !== timeB) {
+        return sortConfig.direction === "desc"
+          ? timeB.localeCompare(timeA)
+          : timeA.localeCompare(timeB);
+      }
+      const orderA = a.inputOrder || 0;
+      const orderB = b.inputOrder || 0;
+      return sortConfig.direction === "desc" ? orderB - orderA : orderA - orderB;
+    });
+  }, [filtered, sortConfig, relativeRowNumberMap]);
+
   return (
     <div className="space-y-6">
       {/* Page Title & Search Bar */}
       <div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-          Buku Besar Transaksi (General Ledger)
-        </h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            Buku Besar Transaksi (General Ledger)
+          </h1>
+          <PrivacyToggle size="sm" />
+        </div>
         <p className="text-xs sm:text-sm text-slate-400 font-sans mt-1">
           Daftar seluruh mutasi perbankan, e-wallet, dan arsip data historis.
         </p>
@@ -247,7 +478,7 @@ export function TransactionsClient({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">Semua Rekening / Wallet</SelectItem>
-                {accounts.map((acc) => (
+                {accountNames.map((acc) => (
                   <SelectItem key={acc} value={acc}>
                     {acc}
                   </SelectItem>
@@ -292,9 +523,27 @@ export function TransactionsClient({
                 {selectedType}
               </span>
             )}
+            {sortConfig.field === "row" && sortConfig.direction === "asc" && (
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] flex items-center gap-1 font-mono">
+                <ArrowUp className="w-3 h-3" />
+                No. Input: 1 ➔ N
+              </span>
+            )}
+            {sortConfig.field === "row" && sortConfig.direction === "desc" && (
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] flex items-center gap-1 font-mono">
+                <ArrowDown className="w-3 h-3" />
+                No. Input: N ➔ 1
+              </span>
+            )}
+            {sortConfig.field === "date" && sortConfig.direction === "asc" && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] flex items-center gap-1">
+                <ArrowUp className="w-3 h-3" />
+                Terlama ➔ Terbaru
+              </span>
+            )}
           </div>
 
-          {(selectedMonth !== nowYM || selectedWallet !== "ALL" || selectedType !== "ALL" || searchTerm) && (
+          {(selectedMonth !== nowYM || selectedWallet !== "ALL" || selectedType !== "ALL" || searchTerm || sortConfig.field !== "date" || sortConfig.direction !== "desc") && (
             <button
               type="button"
               onClick={() => {
@@ -302,6 +551,7 @@ export function TransactionsClient({
                 setSelectedWallet("ALL");
                 setSelectedType("ALL");
                 setSearchTerm("");
+                updateSort({ field: "date", direction: "desc" });
               }}
               className="text-xs text-rose-400 hover:text-rose-300 hover:underline flex items-center gap-1 transition-colors"
             >
@@ -317,24 +567,64 @@ export function TransactionsClient({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-28">Tanggal</TableHead>
+              <TableHead className="w-16 text-center">
+                <button
+                  type="button"
+                  onClick={handleSortRowToggle}
+                  className="inline-flex items-center justify-center gap-1 text-slate-300 hover:text-white font-mono text-xs font-semibold group cursor-pointer transition-colors"
+                  title={`Urutkan nomor urut input (${sortConfig.field === "row" && sortConfig.direction === "asc" ? "1 ➔ N" : "N ➔ 1"})`}
+                  aria-label="Urutkan nomor urut input"
+                >
+                  <span>No.</span>
+                  {sortConfig.field === "row" ? (
+                    sortConfig.direction === "asc" ? (
+                      <ArrowUp className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                    ) : (
+                      <ArrowDown className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                    )
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-slate-500 opacity-60 group-hover:opacity-100 transition-opacity" />
+                  )}
+                </button>
+              </TableHead>
+              <TableHead className="w-28">
+                <button
+                  type="button"
+                  onClick={handleSortDateToggle}
+                  className="inline-flex items-center gap-1.5 text-slate-300 hover:text-white font-mono text-xs font-semibold group cursor-pointer transition-colors"
+                  title={`Urutkan tanggal (${sortConfig.field === "date" && sortConfig.direction === "desc" ? "Terbaru ➔ Terlama" : "Terlama ➔ Terbaru"})`}
+                  aria-label={`Urutkan tanggal (${sortConfig.field === "date" && sortConfig.direction === "desc" ? "Terbaru ➔ Terlama" : "Terlama ➔ Terbaru"})`}
+                >
+                  <span>Tanggal</span>
+                  {sortConfig.field === "date" ? (
+                    sortConfig.direction === "desc" ? (
+                      <ArrowDown className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                    ) : (
+                      <ArrowUp className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                    )
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-slate-500 opacity-60 group-hover:opacity-100 transition-opacity" />
+                  )}
+                </button>
+              </TableHead>
               <TableHead className="w-36">Rekening / Wallet</TableHead>
               <TableHead>Keterangan Mutasi</TableHead>
               <TableHead className="w-44">Kategori</TableHead>
               <TableHead className="w-32 text-right">Nominal</TableHead>
+              <TableHead className="w-36 text-right">Saldo</TableHead>
               <TableHead className="w-24 text-center">Tipe</TableHead>
               <TableHead className="w-40">Status Transfer</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.length === 0 ? (
+            {sortedTransactions.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center text-xs font-mono text-slate-500">
+                <TableCell colSpan={9} className="h-32 text-center text-xs font-mono text-slate-500">
                   Tidak ada transaksi yang sesuai dengan filter pencarian.
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((tx) => {
+              sortedTransactions.map((tx) => {
                 const isTransfer = tx.type === "TRANSFER";
                 const isTargetWallet =
                   selectedWallet !== "ALL" &&
@@ -432,8 +722,21 @@ export function TransactionsClient({
                   </Badge>
                 );
 
+                const rowNumber = relativeRowNumberMap.get(tx.id) ?? tx.inputOrder;
+
+                const txBalances = runningBalancesMap.get(tx.id);
+                const sourceBal = tx.sourceBalance ?? txBalances?.sourceBalance ?? 0;
+                const targetBal = tx.targetBalance ?? txBalances?.targetBalance ?? null;
+
+                const displayBal = isTransferIn && targetBal !== null ? targetBal : sourceBal;
+                const showTargetSubtitle =
+                  isTransfer && selectedWallet === "ALL" && targetBal !== null;
+
                 return (
                   <TableRow key={tx.id + (isTransferIn ? "-in" : "")} className="hover:bg-white/[0.02]">
+                    <TableCell className="font-mono text-xs text-slate-400 text-center font-semibold">
+                      {rowNumber ? `#${rowNumber}` : "—"}
+                    </TableCell>
                     <TableCell className="font-mono text-xs text-slate-300">
                       <div>{tx.date}</div>
                       {tx.time && <div className="text-[10px] text-slate-500">{tx.time}</div>}
@@ -458,7 +761,28 @@ export function TransactionsClient({
                         size="sm"
                         color={displayColor}
                         showSign={showSign}
+                        isMasked={isBalanceHidden}
                       />
+                    </TableCell>
+
+                    <TableCell className="text-right">
+                      <TabularCurrency
+                        cents={displayBal}
+                        size="sm"
+                        color="default"
+                        isMasked={isBalanceHidden}
+                      />
+                      {showTargetSubtitle && (
+                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                          Target:{" "}
+                          <TabularCurrency
+                            cents={targetBal}
+                            size="sm"
+                            color="muted"
+                            isMasked={isBalanceHidden}
+                          />
+                        </div>
+                      )}
                     </TableCell>
 
                     <TableCell className="text-center">{badge}</TableCell>

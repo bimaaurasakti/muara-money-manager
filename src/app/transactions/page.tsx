@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { transactions, accounts, categories } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { TransactionsClient } from "@/components/transactions/transactions-client";
 
@@ -9,12 +9,14 @@ export const dynamic = "force-dynamic";
 interface TransactionsPageProps {
   searchParams?: Promise<{
     wallet?: string;
+    sort?: string;
   }>;
 }
 
 export default async function TransactionsPage(props?: TransactionsPageProps) {
   const resolvedParams = props?.searchParams ? await props.searchParams : undefined;
   const initialWallet = resolvedParams?.wallet;
+  const initialSort = resolvedParams?.sort;
 
   const targetAccounts = alias(accounts, "target_accounts");
 
@@ -22,6 +24,7 @@ export default async function TransactionsPage(props?: TransactionsPageProps) {
     db
       .select({
         id: transactions.id,
+        inputOrder: sql<number>`transactions.rowid`.mapWith(Number),
         date: transactions.date,
         time: transactions.time,
         amount: transactions.amount,
@@ -53,8 +56,15 @@ export default async function TransactionsPage(props?: TransactionsPageProps) {
       <TransactionsClient
         initialTransactions={txList}
         accounts={allAccounts.map((a) => a.name)}
+        accountsMetadata={allAccounts.map((a) => ({
+          id: a.id,
+          name: a.name,
+          initialBalance: a.initialBalance,
+          currentBalance: a.currentBalance,
+        }))}
         availableMonths={availableMonths}
         initialWallet={initialWallet}
+        initialSort={initialSort}
       />
     </div>
   );

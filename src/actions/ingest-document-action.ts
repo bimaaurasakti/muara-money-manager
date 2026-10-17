@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { accounts, importBatches, transactions } from "@/db/schema";
 import { decryptAndParseMandiriExcel } from "@/lib/parser/excel-decryptor";
 import { parseBluCsv, preprocessBluCsv } from "@/lib/parser/file-preprocessor";
+import { extractPdfRawText, parseBankPdfStatement } from "@/lib/parser/pdf-statement-parser";
 import { extractTransactionsWithGemini, ExtractedTransaction } from "@/lib/gemini/extractor";
 import {
   detectIntraBatchContraTransfers,
@@ -192,76 +193,177 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
         }
       }
     } else if (fileExtension === "pdf") {
-      // BCA / DANA PDF Statement
-      detectedSource = fileName.toLowerCase().includes("dana") ? "PDF_DANA" : "PDF_BCA";
-      const base64Data = buffer.toString("base64");
+      // Hybrid Two-Stage Pipeline for Bank PDFs (BCA & DANA)
+      // Stage 1: Deterministic Native PDF Stream Extraction (100% mathematical precision)
+      const rawPdfText = await extractPdfRawText(buffer);
+      const parsedBankPdf = parseBankPdfStatement(rawPdfText, selectedWalletName);
 
-      let existingRefTxs: { id: string; date: string; time?: string | null; amount: number; type: string; description: string; sourceWalletName?: string; targetWalletName?: string | null }[] = [];
-      if (selectedAccountId && selectedAccountId !== "AUTO") {
-        const idToAccName = new Map<string, string>();
-        for (const a of allAccounts) {
-          idToAccName.set(a.id, a.name);
+      if (parsedBankPdf.transactions.length > 0) {
+        detectedSource = parsedBankPdf.detectedBank === "DANA" ? "PDF_DANA" : "PDF_BCA";
+        detectedAccount = parsedBankPdf.detectedAccountName;
+        extractedList = parsedBankPdf.transactions;
+
+        // Fetch symmetric reference transactions for this account & date range
+        let existingRefTxs: { id: string; date: string; time?: string | null; amount: number; type: string; description: string; sourceWalletName?: string; targetWalletName?: string | null }[] = [];
+        const pdfDates = extractedList.map((t) => t.date).filter(Boolean);
+        const pdfMinDate = pdfDates.length > 0 ? pdfDates.reduce((a, b) => (a < b ? a : b)) : undefined;
+        const pdfMaxDate = pdfDates.length > 0 ? pdfDates.reduce((a, b) => (a > b ? a : b)) : undefined;
+
+        const detectedAccRecord = allAccounts.find(
+          (a) => a.name.toLowerCase() === detectedAccount.toLowerCase()
+        );
+
+        if (detectedAccRecord && pdfMinDate && pdfMaxDate) {
+          const idToAccName = new Map<string, string>();
+          for (const a of allAccounts) {
+            idToAccName.set(a.id, a.name);
+          }
+
+          const dbTxs = await db
+            .select({
+              id: transactions.id,
+              accountId: transactions.accountId,
+              targetAccountId: transactions.targetAccountId,
+              date: transactions.date,
+              time: transactions.time,
+              amount: transactions.amount,
+              type: transactions.type,
+              description: transactions.description,
+            })
+            .from(transactions)
+            .where(
+              and(
+                or(
+                  eq(transactions.accountId, detectedAccRecord.id),
+                  eq(transactions.targetAccountId, detectedAccRecord.id)
+                ),
+                gte(transactions.date, pdfMinDate),
+                lte(transactions.date, pdfMaxDate)
+              )
+            );
+
+          existingRefTxs = dbTxs.map((t) => ({
+            id: t.id,
+            date: t.date,
+            time: t.time,
+            amount: fromCents(t.amount),
+            type: t.type,
+            description: t.description,
+            sourceWalletName: idToAccName.get(t.accountId),
+            targetWalletName: t.targetAccountId ? idToAccName.get(t.targetAccountId) : null,
+          }));
         }
 
-        const dbTxs = await db
-          .select({
-            id: transactions.id,
-            accountId: transactions.accountId,
-            targetAccountId: transactions.targetAccountId,
-            date: transactions.date,
-            time: transactions.time,
-            amount: transactions.amount,
-            type: transactions.type,
-            description: transactions.description,
-          })
-          .from(transactions)
-          .where(
-            or(
-              eq(transactions.accountId, selectedAccountId),
-              eq(transactions.targetAccountId, selectedAccountId)
-            )
-          )
-          .limit(100);
+        // Stage 2: Gemini Graceful Semantic Enrichment using Lightweight Summary Table Text
+        if (process.env.GEMINI_API_KEY && extractedList.length > 0) {
+          try {
+            const geminiResult = await extractTransactionsWithGemini({
+              contents: [
+                {
+                  text: `${parsedBankPdf.cleanSummaryText}\nAccount Number: ${parsedBankPdf.accountNumber}`,
+                },
+              ],
+              selectedWalletName: detectedAccount,
+              knownAccounts,
+              existingTransactions: existingRefTxs,
+            });
 
-        existingRefTxs = dbTxs.map((t) => ({
-          id: t.id,
+            if (geminiResult && Array.isArray(geminiResult.transactions)) {
+              for (const aiTx of geminiResult.transactions) {
+                const match = extractedList.find(
+                  (lt) => lt.date === aiTx.date && lt.amountCents === aiTx.amountCents
+                );
+                if (match) {
+                  if (aiTx.type === "TRANSFER" && aiTx.targetWalletName && !match.targetWalletName) {
+                    match.type = "TRANSFER";
+                    match.targetWalletName = aiTx.targetWalletName;
+                  }
+                  if (aiTx.isDuplicate) {
+                    match.isDuplicate = true;
+                    match.duplicateReason = aiTx.duplicateReason || "Duplikat semantik terdeteksi oleh AI.";
+                  }
+                }
+              }
+            }
+          } catch (aiError) {
+            console.warn(
+              "[IngestAction] Graceful degradation: Gemini enrichment failed, using deterministic PDF data.",
+              aiError
+            );
+          }
+        }
+      } else {
+        // Fallback: If deterministic parser failed or format is unknown, fallback to multimodal Gemini directly
+        detectedSource = fileName.toLowerCase().includes("dana") ? "PDF_DANA" : "PDF_BCA";
+        const base64Data = buffer.toString("base64");
+
+        let existingRefTxs: { id: string; date: string; time?: string | null; amount: number; type: string; description: string; sourceWalletName?: string; targetWalletName?: string | null }[] = [];
+        if (selectedAccountId && selectedAccountId !== "AUTO") {
+          const idToAccName = new Map<string, string>();
+          for (const a of allAccounts) {
+            idToAccName.set(a.id, a.name);
+          }
+
+          const dbTxs = await db
+            .select({
+              id: transactions.id,
+              accountId: transactions.accountId,
+              targetAccountId: transactions.targetAccountId,
+              date: transactions.date,
+              time: transactions.time,
+              amount: transactions.amount,
+              type: transactions.type,
+              description: transactions.description,
+            })
+            .from(transactions)
+            .where(
+              or(
+                eq(transactions.accountId, selectedAccountId),
+                eq(transactions.targetAccountId, selectedAccountId)
+              )
+            )
+            .limit(100);
+
+          existingRefTxs = dbTxs.map((t) => ({
+            id: t.id,
+            date: t.date,
+            time: t.time,
+            amount: fromCents(t.amount),
+            type: t.type,
+            description: t.description,
+            sourceWalletName: idToAccName.get(t.accountId),
+            targetWalletName: t.targetAccountId ? idToAccName.get(t.targetAccountId) : null,
+          }));
+        }
+
+        const geminiResult = await extractTransactionsWithGemini({
+          contents: [
+            {
+              inlineData: {
+                data: base64Data,
+                mimeType: "application/pdf",
+              },
+            },
+          ],
+          selectedWalletName,
+          knownAccounts,
+          existingTransactions: existingRefTxs,
+        });
+
+        detectedAccount = geminiResult.detectedAccountName;
+        extractedList = geminiResult.transactions.map((t, idx) => ({
+          id: `pdf-${Date.now()}-${idx}`,
+          sourceWalletName: t.sourceWalletName,
+          amountCents: t.amountCents,
+          type: t.type,
           date: t.date,
           time: t.time,
-          amount: fromCents(t.amount),
-          type: t.type,
           description: t.description,
-          sourceWalletName: idToAccName.get(t.accountId),
-          targetWalletName: t.targetAccountId ? idToAccName.get(t.targetAccountId) : null,
+          targetWalletName: t.targetWalletName,
+          isDuplicate: Boolean(t.isDuplicate),
+          duplicateReason: t.duplicateReason || undefined,
         }));
       }
-
-      const geminiResult = await extractTransactionsWithGemini({
-        contents: [
-          {
-            inlineData: {
-              data: base64Data,
-              mimeType: "application/pdf",
-            },
-          },
-        ],
-        selectedWalletName,
-        knownAccounts,
-        existingTransactions: existingRefTxs,
-      });
-
-      detectedAccount = geminiResult.detectedAccountName;
-      extractedList = geminiResult.transactions.map((t, idx) => ({
-        id: `pdf-${Date.now()}-${idx}`,
-        sourceWalletName: t.sourceWalletName,
-        amountCents: t.amountCents,
-        type: t.type,
-        date: t.date,
-        time: t.time,
-        description: t.description,
-        targetWalletName: t.targetWalletName,
-        isDuplicate: Boolean(t.isDuplicate),
-        duplicateReason: t.duplicateReason || undefined,
-      }));
     } else if (["png", "jpg", "jpeg", "webp"].includes(fileExtension)) {
       // Receipt / Mobile Screenshot
       detectedSource = "SCREENSHOT";
