@@ -902,14 +902,16 @@ export function TransactionsClient({
                 const isTransferOut = isTransfer && isSourceWallet;
 
                 // Amount & Sign & Color
-                const displayAmount = isTransferOut ? -tx.amount : tx.amount;
-                const displayColor = isTransferIn
+                const isExpense = tx.type === "EXPENSE" || isTransferOut;
+                const isIncome = tx.type === "INCOME" || isTransferIn;
+
+                const displayAmount = isExpense
+                  ? -Math.abs(tx.amount)
+                  : Math.abs(tx.amount);
+
+                const displayColor = isIncome
                   ? "income"
-                  : isTransferOut
-                  ? "expense"
-                  : tx.type === "INCOME"
-                  ? "income"
-                  : tx.type === "EXPENSE"
+                  : isExpense
                   ? "expense"
                   : "transfer";
 

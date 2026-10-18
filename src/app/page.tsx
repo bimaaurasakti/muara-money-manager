@@ -250,7 +250,7 @@ export default async function HomePage() {
                   <TableCell className="text-xs text-slate-400">{tx.categoryName || "—"}</TableCell>
                   <TableCell className="text-right">
                     <TabularCurrency
-                      cents={tx.amount}
+                      cents={tx.type === "EXPENSE" ? -Math.abs(tx.amount) : Math.abs(tx.amount)}
                       size="sm"
                       color={tx.type === "INCOME" ? "income" : tx.type === "EXPENSE" ? "expense" : "transfer"}
                       showSign={tx.type !== "TRANSFER"}
