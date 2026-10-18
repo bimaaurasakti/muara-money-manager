@@ -20,7 +20,7 @@ export function TopBar() {
   };
 
   return (
-    <header className="h-16 sticky top-0 z-30 bg-[#030712]/80 backdrop-blur-xl border-b border-white/[0.08] px-4 sm:px-6 flex items-center justify-between">
+    <header className="h-16 sticky top-0 z-30 bg-[#030712]/80 backdrop-blur-xl border-b border-white/[0.08] px-4 sm:px-6 lg:px-8 flex items-center justify-between">
       <div className="flex items-center gap-3">
         <h2 className="text-sm sm:text-base font-bold text-white tracking-tight">
           {getPageTitle()}

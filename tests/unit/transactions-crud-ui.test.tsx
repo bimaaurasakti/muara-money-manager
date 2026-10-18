@@ -49,7 +49,7 @@ describe("Transactions Client CRUD UI Integration", () => {
       />
     );
 
-    const addBtn = screen.getByRole("button", { name: /\+ Tambah Transaksi/i });
+    const addBtn = screen.getByRole("button", { name: /Tambah Transaksi/i });
     expect(addBtn).toBeDefined();
 
     fireEvent.click(addBtn);
