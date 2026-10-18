@@ -56,6 +56,18 @@ export interface InterWalletTransferItem {
   note: string | null;
 }
 
+export const NON_OPERATIONAL_CATEGORIES = ["🔄 Pindah Uang", "⚙️ Penyesuaian Saldo"] as const;
+
+export function isOperationalTransaction(
+  categoryName: string | null | undefined,
+  transferPairId: string | null | undefined,
+  type: string
+): boolean {
+  if (type === "TRANSFER" || transferPairId) return false;
+  if (!categoryName) return true;
+  return !NON_OPERATIONAL_CATEGORIES.includes(categoryName as any);
+}
+
 function getPreviousMonth(yearMonth: string): string {
   const [y, m] = yearMonth.split("-").map(Number);
   const prevDate = new Date(Date.UTC(y, m - 2, 1));
@@ -79,7 +91,7 @@ export async function getMonthlyKPISummary(yearMonth: string): Promise<MonthlyKP
       sql`${transactions.date} LIKE ${`${yearMonth}%`} 
           AND ${transactions.type} = 'INCOME' 
           AND ${transactions.transferPairId} IS NULL 
-          AND (${categories.name} != '🔄 Pindah Uang' OR ${categories.name} IS NULL)`
+          AND ((${categories.name} != '🔄 Pindah Uang' AND ${categories.name} != '⚙️ Penyesuaian Saldo') OR ${categories.name} IS NULL)`
     );
 
   // 2. Current Month Pure Operational Expense
@@ -91,7 +103,7 @@ export async function getMonthlyKPISummary(yearMonth: string): Promise<MonthlyKP
       sql`${transactions.date} LIKE ${`${yearMonth}%`} 
           AND ${transactions.type} = 'EXPENSE' 
           AND ${transactions.transferPairId} IS NULL 
-          AND (${categories.name} != '🔄 Pindah Uang' OR ${categories.name} IS NULL)`
+          AND ((${categories.name} != '🔄 Pindah Uang' AND ${categories.name} != '⚙️ Penyesuaian Saldo') OR ${categories.name} IS NULL)`
     );
 
   // 3. Current Month Inter-Wallet Transfers (single-sided volume)
@@ -115,7 +127,7 @@ export async function getMonthlyKPISummary(yearMonth: string): Promise<MonthlyKP
       sql`${transactions.date} LIKE ${`${prevMonth}%`} 
           AND ${transactions.type} = 'INCOME' 
           AND ${transactions.transferPairId} IS NULL 
-          AND (${categories.name} != '🔄 Pindah Uang' OR ${categories.name} IS NULL)`
+          AND ((${categories.name} != '🔄 Pindah Uang' AND ${categories.name} != '⚙️ Penyesuaian Saldo') OR ${categories.name} IS NULL)`
     );
 
   const prevExpenseRes = await db
@@ -126,7 +138,7 @@ export async function getMonthlyKPISummary(yearMonth: string): Promise<MonthlyKP
       sql`${transactions.date} LIKE ${`${prevMonth}%`} 
           AND ${transactions.type} = 'EXPENSE' 
           AND ${transactions.transferPairId} IS NULL 
-          AND (${categories.name} != '🔄 Pindah Uang' OR ${categories.name} IS NULL)`
+          AND ((${categories.name} != '🔄 Pindah Uang' AND ${categories.name} != '⚙️ Penyesuaian Saldo') OR ${categories.name} IS NULL)`
     );
 
   const totalIncomeCents = Number(incomeRes[0]?.sum || 0);
@@ -193,7 +205,8 @@ export async function getCategoryBreakdown(yearMonth: string): Promise<CategoryB
       sql`${transactions.date} LIKE ${`${yearMonth}%`} 
           AND ${transactions.type} = 'EXPENSE' 
           AND ${transactions.transferPairId} IS NULL 
-          AND ${categories.name} != '🔄 Pindah Uang'`
+          AND ${categories.name} != '🔄 Pindah Uang'
+          AND ${categories.name} != '⚙️ Penyesuaian Saldo'`
     )
     .groupBy(categories.id, categories.name, categories.icon, subcategories.id, subcategories.name)
     .orderBy(desc(sql`SUM(${transactions.amount})`));
@@ -265,7 +278,7 @@ export async function getTitleBreakdown(yearMonth: string): Promise<TitleBreakdo
       sql`${transactions.date} LIKE ${`${yearMonth}%`} 
           AND ${transactions.type} = 'EXPENSE' 
           AND ${transactions.transferPairId} IS NULL 
-          AND (${categories.name} != '🔄 Pindah Uang' OR ${categories.name} IS NULL)`
+          AND ((${categories.name} != '🔄 Pindah Uang' AND ${categories.name} != '⚙️ Penyesuaian Saldo') OR ${categories.name} IS NULL)`
     )
     .groupBy(transactions.description, categories.name)
     .orderBy(desc(sql`SUM(${transactions.amount})`));
@@ -308,7 +321,7 @@ export async function getDailyTimeline(yearMonth: string): Promise<DailyTimeline
     .where(
       sql`${transactions.date} LIKE ${`${yearMonth}%`} 
           AND ${transactions.transferPairId} IS NULL 
-          AND (${categories.name} != '🔄 Pindah Uang' OR ${categories.name} IS NULL)`
+          AND ((${categories.name} != '🔄 Pindah Uang' AND ${categories.name} != '⚙️ Penyesuaian Saldo') OR ${categories.name} IS NULL)`
     )
     .groupBy(transactions.date, transactions.type);
 

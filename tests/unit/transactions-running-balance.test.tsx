@@ -156,7 +156,10 @@ describe("Transactions Running Balance (Saldo Berjalan) Feature", () => {
       );
 
       const table = screen.getByRole("table");
-      const rows = within(table).getAllByRole("row").slice(1); // exclude header
+      const rows = within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .filter((r) => !r.hasAttribute("data-summary-row")); // exclude header & summary rows
 
       // In DESC order:
       // Row 0 is tx-3 (09/08): Saldo should be 106.534,81
@@ -178,7 +181,10 @@ describe("Transactions Running Balance (Saldo Berjalan) Feature", () => {
       );
 
       const table = screen.getByRole("table");
-      const rows = within(table).getAllByRole("row").slice(1);
+      const rows = within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .filter((r) => !r.hasAttribute("data-summary-row"));
 
       // In ASC order:
       // Row 0 is tx-1 (02/08): Saldo should be 124.263,81
@@ -219,8 +225,11 @@ describe("Transactions Running Balance (Saldo Berjalan) Feature", () => {
       );
 
       const table = screen.getByRole("table");
-      const row = within(table).getAllByRole("row")[1];
-      expect(row.textContent).toContain("70.000");
+      const rows = within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .filter((r) => !r.hasAttribute("data-summary-row"));
+      expect(rows[0].textContent).toContain("70.000");
     });
 
     it("masks Saldo when Privacy Mode is activated", () => {

@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { transactions, accounts, categories } from "@/db/schema";
+import { transactions, accounts, categories, subcategories } from "@/db/schema";
 import { desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { TransactionsClient } from "@/components/transactions/transactions-client";
@@ -20,7 +20,7 @@ export default async function TransactionsPage(props?: TransactionsPageProps) {
 
   const targetAccounts = alias(accounts, "target_accounts");
 
-  const [txList, allAccounts] = await Promise.all([
+  const [txList, allAccounts, allCategories, allSubcategories] = await Promise.all([
     db
       .select({
         id: transactions.id,
@@ -45,7 +45,18 @@ export default async function TransactionsPage(props?: TransactionsPageProps) {
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .orderBy(desc(transactions.date), desc(transactions.time)),
     db.select().from(accounts),
+    db.select().from(categories),
+    db.select().from(subcategories),
   ]);
+
+  const categoriesData = allCategories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    type: c.type,
+    subcategories: allSubcategories
+      .filter((s) => s.categoryId === c.id)
+      .map((s) => ({ id: s.id, name: s.name })),
+  }));
 
   const availableMonths = Array.from(
     new Set(txList.map((t) => t.date.slice(0, 7)).filter(Boolean))
@@ -62,6 +73,7 @@ export default async function TransactionsPage(props?: TransactionsPageProps) {
           initialBalance: a.initialBalance,
           currentBalance: a.currentBalance,
         }))}
+        categoriesData={categoriesData}
         availableMonths={availableMonths}
         initialWallet={initialWallet}
         initialSort={initialSort}

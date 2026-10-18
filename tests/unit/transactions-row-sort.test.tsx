@@ -63,13 +63,16 @@ function getRenderedRowDetails(): Array<{ no: string; desc: string }> {
   const table = screen.getByRole("table");
   const rows = within(table).getAllByRole("row");
   // row 0 is header, rows 1..n are body rows
-  return rows.slice(1).map((r) => {
-    const cells = within(r).getAllByRole("cell");
-    return {
-      no: cells[0]?.textContent?.trim() || "",
-      desc: cells[3]?.textContent || "", // cell 0 is No., cell 1 is Tanggal, cell 2 is Wallet, cell 3 is Keterangan
-    };
-  });
+  return rows
+    .slice(1)
+    .filter((r) => !r.hasAttribute("data-summary-row"))
+    .map((r) => {
+      const cells = within(r).getAllByRole("cell");
+      return {
+        no: cells[0]?.textContent?.trim() || "",
+        desc: cells[3]?.textContent || "", // cell 0 is No., cell 1 is Tanggal, cell 2 is Wallet, cell 3 is Keterangan
+      };
+    });
 }
 
 describe("Transactions Row Input Order Sorting Feature", () => {

@@ -4,6 +4,7 @@ import * as React from "react";
 import { TabularCurrency } from "@/components/ui/tabular-currency";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ContraPairTether } from "@/components/ui/contra-pair-tether";
@@ -25,10 +26,18 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Plus,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { PrivacyToggle } from "@/components/ui/privacy-toggle";
 import { usePrivacyStore } from "@/store/use-privacy-store";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import {
+  TransactionFormDialog,
+  CategoryOption,
+} from "@/components/transactions/transaction-form-dialog";
+import { DeleteTransactionDialog } from "@/components/transactions/delete-transaction-dialog";
 
 export interface TransactionRow {
   id: string;
@@ -146,10 +155,118 @@ export function calculateRunningBalances(
   return resultMap;
 }
 
+export interface PeriodBalanceSummary {
+  startBalance: number;
+  endBalance: number;
+  startDateStr: string;
+  endDateStr: string;
+  periodLabel: string;
+}
+
+export function calculatePeriodBalances(
+  transactions: TransactionRow[],
+  accountsMetadata?: AccountMetadata[],
+  selectedWallet: string = "ALL",
+  selectedMonth: string = "ALL"
+): PeriodBalanceSummary {
+  const isAllWallets = !selectedWallet || selectedWallet === "ALL";
+  const normalizedWallet = selectedWallet?.toLowerCase();
+
+  let initialBalanceBase = 0;
+  if (accountsMetadata && accountsMetadata.length > 0) {
+    if (isAllWallets) {
+      initialBalanceBase = accountsMetadata.reduce((sum, a) => sum + (a.initialBalance || 0), 0);
+    } else {
+      const found = accountsMetadata.find(
+        (a) => a.id === selectedWallet || a.name.toLowerCase() === normalizedWallet
+      );
+      initialBalanceBase = found?.initialBalance || 0;
+    }
+  }
+
+  const isTxInWallet = (tx: TransactionRow) => {
+    if (isAllWallets) return true;
+    const isSource =
+      tx.accountId === selectedWallet || tx.accountName.toLowerCase() === normalizedWallet;
+    const isTarget =
+      tx.type === "TRANSFER" &&
+      (tx.targetAccountId === selectedWallet ||
+        tx.targetAccountName?.toLowerCase() === normalizedWallet);
+    return isSource || isTarget;
+  };
+
+  const getTxDelta = (tx: TransactionRow) => {
+    if (isAllWallets) {
+      if (tx.type === "INCOME") return tx.amount;
+      if (tx.type === "EXPENSE") return -tx.amount;
+      return 0;
+    }
+
+    const isSource =
+      tx.accountId === selectedWallet || tx.accountName.toLowerCase() === normalizedWallet;
+    const isTarget =
+      tx.type === "TRANSFER" &&
+      (tx.targetAccountId === selectedWallet ||
+        tx.targetAccountName?.toLowerCase() === normalizedWallet);
+
+    if (isSource && isTarget) return 0;
+    if (isTarget) return tx.amount;
+    if (tx.type === "INCOME") return tx.amount;
+    if (tx.type === "EXPENSE" || tx.type === "TRANSFER") return -tx.amount;
+    return 0;
+  };
+
+  const isAllMonths = !selectedMonth || selectedMonth === "ALL";
+  const periodStart = isAllMonths ? "" : `${selectedMonth}-01`;
+
+  let startBalance = initialBalanceBase;
+  let endBalance = initialBalanceBase;
+
+  let startDateStr = "";
+  let endDateStr = "";
+
+  if (!isAllMonths) {
+    const [y, m] = selectedMonth.split("-").map(Number);
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const lastDayStr = String(lastDay).padStart(2, "0");
+    startDateStr = `${selectedMonth}-01`;
+    endDateStr = `${selectedMonth}-${lastDayStr}`;
+  }
+
+  for (const tx of transactions) {
+    if (!isTxInWallet(tx)) continue;
+    const delta = getTxDelta(tx);
+
+    if (isAllMonths) {
+      endBalance += delta;
+      if (!startDateStr || tx.date < startDateStr) startDateStr = tx.date;
+      if (!endDateStr || tx.date > endDateStr) endDateStr = tx.date;
+    } else {
+      if (tx.date < periodStart) {
+        startBalance += delta;
+        endBalance += delta;
+      } else if (tx.date.startsWith(selectedMonth)) {
+        endBalance += delta;
+      }
+    }
+  }
+
+  const periodLabel = isAllMonths ? "Semua Periode" : formatMonthTitle(selectedMonth);
+
+  return {
+    startBalance,
+    endBalance,
+    startDateStr: startDateStr || (isAllMonths ? "Awal" : `${selectedMonth}-01`),
+    endDateStr: endDateStr || (isAllMonths ? "Akhir" : `${selectedMonth}-28`),
+    periodLabel,
+  };
+}
+
 export interface TransactionsClientProps {
   initialTransactions: TransactionRow[];
   accounts: string[] | AccountMetadata[];
   accountsMetadata?: AccountMetadata[];
+  categoriesData?: CategoryOption[];
   availableMonths?: string[];
   initialWallet?: string;
   initialSort?: string;
@@ -167,6 +284,7 @@ export function TransactionsClient({
   initialTransactions,
   accounts,
   accountsMetadata,
+  categoriesData,
   availableMonths,
   initialWallet,
   initialSort,
@@ -216,6 +334,19 @@ export function TransactionsClient({
   const [sortConfig, setSortConfig] = React.useState<SortConfig>(() =>
     parseSortParam(initialSort)
   );
+
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = React.useState(false);
+  const [editingTransaction, setEditingTransaction] = React.useState<TransactionRow | null>(null);
+  const [deletingTransaction, setDeletingTransaction] = React.useState<TransactionRow | null>(null);
+
+  const periodSummary = React.useMemo(() => {
+    return calculatePeriodBalances(
+      initialTransactions,
+      effectiveAccountsMetadata,
+      selectedWallet,
+      selectedMonth
+    );
+  }, [initialTransactions, effectiveAccountsMetadata, selectedWallet, selectedMonth]);
 
   React.useEffect(() => {
     if (initialWallet) {
@@ -396,19 +527,143 @@ export function TransactionsClient({
     });
   }, [filtered, sortConfig, relativeRowNumberMap]);
 
+  const showPeriodSummaryRows = !searchTerm && selectedType === "ALL";
+  const isDescOrder = sortConfig.direction === "desc";
+
+  const renderSaldoAwalRow = () => (
+    <TableRow
+      key="period-starting-balance"
+      data-summary-row="true"
+      aria-label="Saldo Awal Periode"
+      className="bg-sky-500/[0.04] border-b border-sky-500/20 hover:bg-sky-500/[0.07] transition-colors"
+    >
+      <TableCell className="font-mono text-xs text-center font-semibold text-sky-400">
+        🏁
+      </TableCell>
+      <TableCell className="font-mono text-xs text-sky-300 font-semibold">
+        <div>{periodSummary.startDateStr}</div>
+        <div className="text-[10px] text-sky-400/70 font-mono">Awal Periode</div>
+      </TableCell>
+      <TableCell>
+        <div className="font-mono text-xs text-sky-200 font-semibold">
+          {selectedWallet === "ALL" ? "Konsolidasi Portofolio" : selectedWallet}
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="font-semibold text-sky-100 text-xs sm:text-sm">
+          Saldo Awal Periode {periodSummary.periodLabel}
+        </div>
+        <div className="text-[11px] text-sky-400/70">
+          Posisi kas pembuka sebelum transaksi periode ini
+        </div>
+      </TableCell>
+      <TableCell className="text-xs text-slate-400 font-mono">
+        Ikhtisar Saldo
+      </TableCell>
+      <TableCell className="text-right text-xs text-slate-500 font-mono">
+        —
+      </TableCell>
+      <TableCell className="text-right font-semibold">
+        <TabularCurrency
+          cents={periodSummary.startBalance}
+          size="sm"
+          color="default"
+          isMasked={isBalanceHidden}
+        />
+      </TableCell>
+      <TableCell className="text-center">
+        <Badge variant="outline" className="bg-sky-500/10 text-sky-400 border-sky-500/30 text-[11px]">
+          Saldo Awal
+        </Badge>
+      </TableCell>
+      <TableCell className="text-slate-500 text-xs text-center font-mono">
+        —
+      </TableCell>
+      <TableCell className="text-slate-500 text-xs text-center font-mono">
+        —
+      </TableCell>
+    </TableRow>
+  );
+
+  const renderSaldoAkhirRow = () => (
+    <TableRow
+      key="period-ending-balance"
+      data-summary-row="true"
+      aria-label="Saldo Akhir Periode"
+      className="bg-emerald-500/[0.04] border-b border-emerald-500/20 hover:bg-emerald-500/[0.07] transition-colors"
+    >
+      <TableCell className="font-mono text-xs text-center font-semibold text-emerald-400">
+        🚩
+      </TableCell>
+      <TableCell className="font-mono text-xs text-emerald-300 font-semibold">
+        <div>{periodSummary.endDateStr}</div>
+        <div className="text-[10px] text-emerald-400/70 font-mono">Akhir Periode</div>
+      </TableCell>
+      <TableCell>
+        <div className="font-mono text-xs text-emerald-200 font-semibold">
+          {selectedWallet === "ALL" ? "Konsolidasi Portofolio" : selectedWallet}
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="font-semibold text-emerald-100 text-xs sm:text-sm">
+          Saldo Akhir Periode {periodSummary.periodLabel}
+        </div>
+        <div className="text-[11px] text-emerald-400/70">
+          Posisi kas penutup setelah seluruh mutasi periode ini
+        </div>
+      </TableCell>
+      <TableCell className="text-xs text-slate-400 font-mono">
+        Ikhtisar Saldo
+      </TableCell>
+      <TableCell className="text-right text-xs text-slate-500 font-mono">
+        —
+      </TableCell>
+      <TableCell className="text-right font-semibold">
+        <TabularCurrency
+          cents={periodSummary.endBalance}
+          size="sm"
+          color="income"
+          isMasked={isBalanceHidden}
+        />
+      </TableCell>
+      <TableCell className="text-center">
+        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[11px]">
+          Saldo Akhir
+        </Badge>
+      </TableCell>
+      <TableCell className="text-slate-500 text-xs text-center font-mono">
+        —
+      </TableCell>
+      <TableCell className="text-slate-500 text-xs text-center font-mono">
+        —
+      </TableCell>
+    </TableRow>
+  );
+
   return (
     <div className="space-y-6">
       {/* Page Title & Search Bar */}
-      <div>
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-            Buku Besar Transaksi (General Ledger)
-          </h1>
-          <PrivacyToggle size="sm" />
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Buku Besar Transaksi (General Ledger)
+            </h1>
+            <PrivacyToggle size="sm" />
+          </div>
+          <p className="text-xs sm:text-sm text-slate-400 font-sans mt-1">
+            Daftar seluruh mutasi perbankan, e-wallet, dan arsip data historis.
+          </p>
         </div>
-        <p className="text-xs sm:text-sm text-slate-400 font-sans mt-1">
-          Daftar seluruh mutasi perbankan, e-wallet, dan arsip data historis.
-        </p>
+
+        <Button
+          type="button"
+          onClick={() => setIsCreateDialogOpen(true)}
+          className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-950/40"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Tambah Transaksi
+        </Button>
       </div>
 
       {/* Filter Toolbar */}
@@ -614,17 +869,27 @@ export function TransactionsClient({
               <TableHead className="w-36 text-right">Saldo</TableHead>
               <TableHead className="w-24 text-center">Tipe</TableHead>
               <TableHead className="w-40">Status Transfer</TableHead>
+              <TableHead className="w-20 text-center">Aksi</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortedTransactions.length === 0 ? (
+            {sortedTransactions.length === 0 && !showPeriodSummaryRows ? (
               <TableRow>
-                <TableCell colSpan={9} className="h-32 text-center text-xs font-mono text-slate-500">
+                <TableCell colSpan={10} className="h-32 text-center text-xs font-mono text-slate-500">
                   Tidak ada transaksi yang sesuai dengan filter pencarian.
                 </TableCell>
               </TableRow>
             ) : (
-              sortedTransactions.map((tx) => {
+              <>
+                {showPeriodSummaryRows && (isDescOrder ? renderSaldoAkhirRow() : renderSaldoAwalRow())}
+                {sortedTransactions.length === 0 && showPeriodSummaryRows && (
+                  <TableRow>
+                    <TableCell colSpan={10} className="h-20 text-center text-xs font-mono text-slate-500">
+                      Tidak ada transaksi yang sesuai dengan filter pencarian.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {sortedTransactions.map((tx) => {
                 const isTransfer = tx.type === "TRANSFER";
                 const isTargetWallet =
                   selectedWallet !== "ALL" &&
@@ -800,13 +1065,74 @@ export function TransactionsClient({
                         />
                       )}
                     </TableCell>
+
+                    <TableCell className="text-center py-2 px-1">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditingTransaction(tx)}
+                          title={`Edit Transaksi ${tx.description}`}
+                          aria-label={`Edit Transaksi ${tx.description}`}
+                          className="p-1 rounded text-slate-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeletingTransaction(tx)}
+                          title={`Hapus Transaksi ${tx.description}`}
+                          aria-label={`Hapus Transaksi ${tx.description}`}
+                          className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 );
-              })
-            )}
-          </TableBody>
+              })}
+              {showPeriodSummaryRows && (isDescOrder ? renderSaldoAwalRow() : renderSaldoAkhirRow())}
+            </>
+          )}
+        </TableBody>
         </Table>
       </Card>
+
+      <TransactionFormDialog
+        open={isCreateDialogOpen}
+        onOpenChange={setIsCreateDialogOpen}
+        mode="create"
+        accounts={effectiveAccountsMetadata.map((a) => ({ id: a.id, name: a.name }))}
+        categories={categoriesData || []}
+        onSuccess={() => router.refresh()}
+      />
+
+      {editingTransaction && (
+        <TransactionFormDialog
+          open={!!editingTransaction}
+          onOpenChange={(open) => !open && setEditingTransaction(null)}
+          mode="edit"
+          initialData={editingTransaction}
+          accounts={effectiveAccountsMetadata.map((a) => ({ id: a.id, name: a.name }))}
+          categories={categoriesData || []}
+          onSuccess={() => {
+            setEditingTransaction(null);
+            router.refresh();
+          }}
+        />
+      )}
+
+      {deletingTransaction && (
+        <DeleteTransactionDialog
+          open={!!deletingTransaction}
+          onOpenChange={(open) => !open && setDeletingTransaction(null)}
+          transaction={deletingTransaction}
+          onSuccess={() => {
+            setDeletingTransaction(null);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

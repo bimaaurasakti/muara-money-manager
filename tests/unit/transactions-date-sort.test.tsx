@@ -56,11 +56,14 @@ function getRenderedRowDescriptions(): string[] {
   const table = screen.getByRole("table");
   const rows = within(table).getAllByRole("row");
   // row 0 is header, rows 1..n are body rows
-  return rows.slice(1).map((r) => {
-    const cells = within(r).getAllByRole("cell");
-    // With "No." column: cell 0 is No, cell 1 is Date, cell 2 is Wallet, cell 3 is Description
-    return cells[3]?.textContent || cells[2]?.textContent || "";
-  });
+  return rows
+    .slice(1)
+    .filter((r) => !r.hasAttribute("data-summary-row"))
+    .map((r) => {
+      const cells = within(r).getAllByRole("cell");
+      // With "No." column: cell 0 is No, cell 1 is Date, cell 2 is Wallet, cell 3 is Description
+      return cells[3]?.textContent || cells[2]?.textContent || "";
+    });
 }
 
 describe("Transactions Date Sorting Feature", () => {
