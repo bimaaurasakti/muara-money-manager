@@ -80,8 +80,8 @@ ${duplicateSection}
 EXTRACTION RULES:
 1. TRANSACTION TYPES:
    - "EXPENSE": Debit transactions (DB, minus sign, Dana Keluar, Pengeluaran, belanja, merchant payments).
-   - "INCOME": Credit transactions (CR, plus sign, Dana Masuk, Pemasukan, gaji, bunga, cashback).
-   - "TRANSFER": Moving money between the user's own wallets (e.g. BCA to DANA, DANA to Blu BCA). When a transfer is detected, identify targetWalletName from the known accounts list.
+   - "INCOME": Credit transactions (CR, plus sign, Dana Masuk, Pemasukan, gaji, payroll, bunga, cashback). Note: Corporate payroll credits into a personal account (e.g., "TRSF E-BANKING CR ... PYBCA" or "Payroll") are strictly "INCOME", NEVER "TRANSFER".
+   - "TRANSFER": Moving money between two DIFFERENT user wallets (e.g. BCA to DANA, DANA to Blu BCA). NEVER mark a transaction as "TRANSFER" if targetWalletName is the same as sourceWalletName. When a transfer is detected, identify a different targetWalletName from the known accounts list.
    
 2. AMOUNT:
    - Always return the absolute positive number. Never include negative signs in the amount. The "type" determines flow direction.

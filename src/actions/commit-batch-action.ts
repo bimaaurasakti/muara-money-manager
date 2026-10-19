@@ -104,12 +104,19 @@ export async function commitBatchAction(
       affectedAccountIds.add(sourceAccId);
 
       let targetAccId: string | null = null;
+      let effectiveType = st.type;
       if (st.targetWalletName) {
-        targetAccId = accountMap.get(st.targetWalletName.toLowerCase()) || null;
-        if (targetAccId) affectedAccountIds.add(targetAccId);
+        const mappedTargetId = accountMap.get(st.targetWalletName.toLowerCase()) || null;
+        if (mappedTargetId && mappedTargetId !== sourceAccId) {
+          targetAccId = mappedTargetId;
+          affectedAccountIds.add(targetAccId);
+        } else if (mappedTargetId === sourceAccId && effectiveType === "TRANSFER") {
+          effectiveType = "INCOME";
+          targetAccId = null;
+        }
       }
 
-      const catId = st.type === "TRANSFER"
+      const catId = effectiveType === "TRANSFER"
         ? pindahUangCatId
         : categoryMap.get("⚠️ tidak terduga") || null;
 
@@ -122,7 +129,7 @@ export async function commitBatchAction(
         categoryId: catId,
         subcategoryId: null,
         amount: st.amountCents,
-        type: st.type,
+        type: effectiveType,
         date: st.date,
         time: sanitizeTimeString(st.time) || null,
         description: st.description,

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import React from "react";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import {
   TransactionsClient,
   TransactionRow,
@@ -53,6 +53,38 @@ const mockTransactions: TransactionRow[] = [
     accountName: "BCA (Baim)",
     targetAccountId: "acc-ef",
     targetAccountName: "Emergency Fund",
+    categoryName: "🔄 Pindah Uang",
+  },
+  {
+    id: "tx-self-transfer",
+    date: `${currentMonthStr}-04`,
+    time: "13:00:00",
+    amount: 1707400000, // Rp 17.074.000
+    type: "TRANSFER",
+    description: "TRSF E-BANKING CR PYBCA",
+    note: null,
+    sourceType: "MANUAL",
+    transferPairId: null,
+    accountId: "acc-bca",
+    accountName: "BCA (Baim)",
+    targetAccountId: "acc-bca",
+    targetAccountName: "BCA (Baim)",
+    categoryName: "🔄 Pindah Uang",
+  },
+  {
+    id: "tx-incoming-transfer",
+    date: `${currentMonthStr}-05`,
+    time: "14:00:00",
+    amount: 2452650000, // Rp 24.526.500
+    type: "TRANSFER",
+    description: "Pinjem uang beli emas",
+    note: null,
+    sourceType: "MANUAL",
+    transferPairId: "pair-2",
+    accountId: "acc-ef",
+    accountName: "Emergency Fund",
+    targetAccountId: "acc-bca",
+    targetAccountName: "BCA (Baim)",
     categoryName: "🔄 Pindah Uang",
   },
 ];
@@ -137,5 +169,61 @@ describe("Transaction Cash-Flow Nominal Signs Consistency", () => {
     expect(within(transferNominal).queryByText("-")).toBeNull();
     expect(within(transferNominal).queryByText("+")).toBeNull();
     expect(within(transferNominal).getByText("13.000.000")).toBeDefined();
+  });
+
+  it("handles self-transfer without contradictory signs and with neutral Transfer badge when filtered to the account", () => {
+    render(
+      <TransactionsClient
+        initialTransactions={mockTransactions}
+        accounts={mockAccounts}
+        initialWallet="BCA (Baim)"
+      />
+    );
+
+    // 1. Legitimate incoming transfer from Emergency Fund -> BCA (Baim)
+    const incomingRow = screen.getByText("Pinjem uang beli emas").closest("tr")!;
+    const incomingNominal = within(incomingRow).getAllByRole("cell")[5];
+    const incomingBadgeCell = within(incomingRow).getAllByRole("cell")[7];
+    expect(within(incomingNominal).getByText("+")).toBeDefined();
+    expect(within(incomingNominal).getByText("24.526.500")).toBeDefined();
+    expect(within(incomingBadgeCell).getByText("Transfer Masuk")).toBeDefined();
+
+    // 2. Anomaly self-transfer (BCA -> BCA)
+    const selfRow = screen.getByText("TRSF E-BANKING CR PYBCA").closest("tr")!;
+    const selfNominal = within(selfRow).getAllByRole("cell")[5];
+    const selfBadgeCell = within(selfRow).getAllByRole("cell")[7];
+
+    // Must NOT have minus '-' sign, must NOT have '+' sign
+    expect(within(selfNominal).queryByText("-")).toBeNull();
+    expect(within(selfNominal).queryByText("+")).toBeNull();
+    expect(within(selfNominal).getByText("17.074.000")).toBeDefined();
+
+    // Badge must be neutral 'Transfer' (NOT 'Transfer Masuk' and NOT 'Transfer Keluar')
+    expect(within(selfBadgeCell).queryByText("Transfer Masuk")).toBeNull();
+    expect(within(selfBadgeCell).queryByText("Transfer Keluar")).toBeNull();
+    expect(within(selfBadgeCell).getByText("Transfer")).toBeDefined();
+  });
+
+  it("excludes self-transfer from INCOME filter while preserving legitimate incoming transfers", () => {
+    render(
+      <TransactionsClient
+        initialTransactions={mockTransactions}
+        accounts={mockAccounts}
+        initialWallet="BCA (Baim)"
+        initialType="INCOME"
+      />
+    );
+
+    // Legitimate incoming transfer should appear
+    expect(screen.getByText("Pinjem uang beli emas")).toBeDefined();
+
+    // Pure income should appear
+    expect(screen.getByText("Jual Tiket Konser")).toBeDefined();
+
+    // Self-transfer should NOT appear in Pemasukan
+    expect(screen.queryByText("TRSF E-BANKING CR PYBCA")).toBeNull();
+
+    // Expense should NOT appear
+    expect(screen.queryByText("Admin BCA")).toBeNull();
   });
 });

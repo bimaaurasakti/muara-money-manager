@@ -269,6 +269,7 @@ export interface TransactionsClientProps {
   categoriesData?: CategoryOption[];
   availableMonths?: string[];
   initialWallet?: string;
+  initialType?: string;
   initialSort?: string;
 }
 
@@ -287,6 +288,7 @@ export function TransactionsClient({
   categoriesData,
   availableMonths,
   initialWallet,
+  initialType,
   initialSort,
 }: TransactionsClientProps) {
   const router = useRouter();
@@ -329,7 +331,7 @@ export function TransactionsClient({
 
   const [searchTerm, setSearchTerm] = React.useState("");
   const [selectedWallet, setSelectedWallet] = React.useState(matchedWallet);
-  const [selectedType, setSelectedType] = React.useState("ALL");
+  const [selectedType, setSelectedType] = React.useState(initialType || "ALL");
   const [selectedMonth, setSelectedMonth] = React.useState(nowYM);
   const [sortConfig, setSortConfig] = React.useState<SortConfig>(() =>
     parseSortParam(initialSort)
@@ -354,6 +356,12 @@ export function TransactionsClient({
       setSelectedWallet(found || initialWallet);
     }
   }, [initialWallet, accountNames]);
+
+  React.useEffect(() => {
+    if (initialType) {
+      setSelectedType(initialType);
+    }
+  }, [initialType]);
 
   React.useEffect(() => {
     if (initialSort) {
@@ -458,12 +466,14 @@ export function TransactionsClient({
     const isTransferInForSelected =
       selectedWallet !== "ALL" &&
       t.type === "TRANSFER" &&
-      t.targetAccountName?.toLowerCase() === selectedWallet.toLowerCase();
+      t.targetAccountName?.toLowerCase() === selectedWallet.toLowerCase() &&
+      t.accountName.toLowerCase() !== selectedWallet.toLowerCase();
 
     const isTransferOutForSelected =
       selectedWallet !== "ALL" &&
       t.type === "TRANSFER" &&
-      t.accountName.toLowerCase() === selectedWallet.toLowerCase();
+      t.accountName.toLowerCase() === selectedWallet.toLowerCase() &&
+      t.targetAccountName?.toLowerCase() !== selectedWallet.toLowerCase();
 
     let matchesType = true;
     if (selectedType === "ALL") {
@@ -898,8 +908,12 @@ export function TransactionsClient({
                   selectedWallet !== "ALL" &&
                   tx.accountName?.toLowerCase() === selectedWallet.toLowerCase();
 
-                const isTransferIn = isTransfer && isTargetWallet;
-                const isTransferOut = isTransfer && isSourceWallet;
+                const isSelfTransfer =
+                  isTransfer &&
+                  Boolean(tx.accountName) &&
+                  tx.accountName?.toLowerCase() === tx.targetAccountName?.toLowerCase();
+                const isTransferIn = isTransfer && isTargetWallet && !isSourceWallet;
+                const isTransferOut = isTransfer && isSourceWallet && !isTargetWallet;
 
                 // Amount & Sign & Color
                 const isExpense = tx.type === "EXPENSE" || isTransferOut;

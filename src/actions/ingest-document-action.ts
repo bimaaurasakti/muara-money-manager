@@ -274,7 +274,12 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
                   (lt) => lt.date === aiTx.date && lt.amountCents === aiTx.amountCents
                 );
                 if (match) {
-                  if (aiTx.type === "TRANSFER" && aiTx.targetWalletName && !match.targetWalletName) {
+                  if (
+                    aiTx.type === "TRANSFER" &&
+                    aiTx.targetWalletName &&
+                    aiTx.targetWalletName.toLowerCase() !== match.sourceWalletName.toLowerCase() &&
+                    !match.targetWalletName
+                  ) {
                     match.type = "TRANSFER";
                     match.targetWalletName = aiTx.targetWalletName;
                   }
@@ -351,18 +356,24 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
         });
 
         detectedAccount = geminiResult.detectedAccountName;
-        extractedList = geminiResult.transactions.map((t, idx) => ({
-          id: `pdf-${Date.now()}-${idx}`,
-          sourceWalletName: t.sourceWalletName,
-          amountCents: t.amountCents,
-          type: t.type,
-          date: t.date,
-          time: t.time,
-          description: t.description,
-          targetWalletName: t.targetWalletName,
-          isDuplicate: Boolean(t.isDuplicate),
-          duplicateReason: t.duplicateReason || undefined,
-        }));
+        extractedList = geminiResult.transactions.map((t, idx) => {
+          const isSelfTarget =
+            t.type === "TRANSFER" &&
+            Boolean(t.targetWalletName) &&
+            t.targetWalletName?.toLowerCase() === t.sourceWalletName?.toLowerCase();
+          return {
+            id: `pdf-${Date.now()}-${idx}`,
+            sourceWalletName: t.sourceWalletName,
+            amountCents: t.amountCents,
+            type: isSelfTarget ? "INCOME" : t.type,
+            date: t.date,
+            time: t.time,
+            description: t.description,
+            targetWalletName: isSelfTarget ? null : t.targetWalletName,
+            isDuplicate: Boolean(t.isDuplicate),
+            duplicateReason: t.duplicateReason || undefined,
+          };
+        });
       }
     } else if (["png", "jpg", "jpeg", "webp"].includes(fileExtension)) {
       // Receipt / Mobile Screenshot
@@ -424,18 +435,24 @@ export async function ingestDocumentAction(formData: FormData): Promise<IngestAc
       });
 
       detectedAccount = geminiResult.detectedAccountName;
-      extractedList = geminiResult.transactions.map((t, idx) => ({
-        id: `img-${Date.now()}-${idx}`,
-        sourceWalletName: t.sourceWalletName,
-        amountCents: t.amountCents,
-        type: t.type,
-        date: t.date,
-        time: t.time,
-        description: t.description,
-        targetWalletName: t.targetWalletName,
-        isDuplicate: Boolean(t.isDuplicate),
-        duplicateReason: t.duplicateReason || undefined,
-      }));
+      extractedList = geminiResult.transactions.map((t, idx) => {
+        const isSelfTarget =
+          t.type === "TRANSFER" &&
+          Boolean(t.targetWalletName) &&
+          t.targetWalletName?.toLowerCase() === t.sourceWalletName?.toLowerCase();
+        return {
+          id: `img-${Date.now()}-${idx}`,
+          sourceWalletName: t.sourceWalletName,
+          amountCents: t.amountCents,
+          type: isSelfTarget ? "INCOME" : t.type,
+          date: t.date,
+          time: t.time,
+          description: t.description,
+          targetWalletName: isSelfTarget ? null : t.targetWalletName,
+          isDuplicate: Boolean(t.isDuplicate),
+          duplicateReason: t.duplicateReason || undefined,
+        };
+      });
     } else {
       return { success: false, message: `Unsupported file format: .${fileExtension}` };
     }
